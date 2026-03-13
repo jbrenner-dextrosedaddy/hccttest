@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>KGR Lab</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #000;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    font-family: -apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+  }
+
+  /* ── Particle canvas ── */
+  #canvas {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+  }
+
+  /* ── Splash ── */
+  #splash {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 1s cubic-bezier(.4,0,.2,1);
+    padding: 48px 64px;
+    border-radius: 20px;
+    background: radial-gradient(ellipse at center,
+      rgba(0,0,0,.55) 0%,
+      rgba(0,0,0,.2) 70%,
+      transparent 100%
+    );
+  }
+  #splash.out { opacity: 0; pointer-events: none; }
+
+  /* ── Wordmark ── */
+  #wordmark {
+    font-size: clamp(72px, 13vw, 148px);
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -4px;
+    line-height: 1;
+    user-select: none;
+    text-align: center;
+    opacity: 0;
+    transform: translateY(12px);
+    transition: opacity .6s ease, transform .6s ease;
+    text-shadow: 0 0 80px rgba(59,130,246,.25);
+  }
+  #wordmark.in { opacity: 1; transform: translateY(0); }
+
+  #cursor {
+    display: inline-block;
+    width: 4px;
+    height: .75em;
+    background: #3b82f6;
+    border-radius: 2px;
+    margin-left: 6px;
+    vertical-align: middle;
+    animation: blink .85s step-end infinite;
+    transition: opacity .35s ease;
+    box-shadow: 0 0 12px 3px rgba(59,130,246,.7);
+  }
+  #cursor.hide { opacity: 0; animation: none; }
+
+  /* ── Divider ── */
+  #divider {
+    width: 0px;
+    height: 1px;
+    background: linear-gradient(90deg,
+      transparent,
+      rgba(59,130,246,.6) 20%,
+      rgba(255,255,255,.3) 50%,
+      rgba(59,130,246,.6) 80%,
+      transparent
+    );
+    margin-top: 28px;
+    transition: width 0.8s cubic-bezier(.4,0,.2,1);
+    opacity: 0;
+  }
+  #divider.in { width: 320px; opacity: 1; }
+
+  /* ── Tagline ── */
+  #tagline {
+    font-size: clamp(11px, 1.6vw, 16px);
+    font-weight: 300;
+    font-style: italic;
+    color: rgba(255,255,255,.38);
+    margin-top: 18px;
+    letter-spacing: .22em;
+    line-height: 1.2;
+    user-select: none;
+    min-height: 1.4em;
+    text-align: center;
+    visibility: hidden;
+  }
+  #tagline.ready { visibility: visible; }
+
+  .ch { opacity: 0; display: inline; transition: opacity .04s ease; }
+  .ch.show { opacity: 1; }
+  .dot { color: #3b82f6; font-style: normal; opacity: 0; transition: opacity .2s ease; }
+  .dot.show { opacity: 1; }
+
+  /* ── Subtitle ── */
+  #subtitle {
+    margin-top: 10px;
+    font-size: clamp(9px, 1vw, 11px);
+    font-weight: 400;
+    color: rgba(255,255,255,.16);
+    letter-spacing: .35em;
+    text-transform: uppercase;
+    text-align: center;
+    opacity: 0;
+    transition: opacity .8s ease;
+  }
+  #subtitle.in { opacity: 1; }
+
+  /* ── Loading bar ── */
+  #bar-wrap {
+    margin-top: 52px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    opacity: 0;
+    transition: opacity .5s ease;
+  }
+  #bar-wrap.in { opacity: 1; }
+
+  #bar-track {
+    width: 200px;
+    height: 1px;
+    background: rgba(255,255,255,.08);
+    border-radius: 1px;
+    overflow: visible;
+  }
+
+  #bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #1d4ed8, #3b82f6, #93c5fd);
+    border-radius: 1px;
+    position: relative;
+    transition: width linear;
+  }
+  #bar-fill::after {
+    content: '';
+    position: absolute;
+    right: -1px; top: -3px;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #93c5fd;
+    box-shadow: 0 0 12px 5px rgba(147,197,253,.6);
+    transition: opacity .2s ease;
+  }
+  #bar-fill.done::after { opacity: 0; }
+
+  #bar-label {
+    font-size: 10px;
+    color: rgba(255,255,255,.2);
+    letter-spacing: .25em;
+    text-transform: uppercase;
+    font-weight: 400;
+    transition: color .3s ease;
+  }
+
+  @keyframes blink {
+    0%,100% { opacity: 1; }
+    50%      { opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #wordmark, #divider, #bar-wrap, #subtitle { transition: none; }
+    #cursor { animation: none; }
+    .ch { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="splash" role="status">
+
+  <div id="wordmark" aria-live="polite">
+    <span id="typed-text"></span><span id="cursor" aria-hidden="true"></span>
+  </div>
+
+  <div id="divider"></div>
+
+  <div id="tagline" aria-label="dream, believe, deliver"></div>
+
+  <div id="subtitle">HCC Patient Education Study &nbsp;·&nbsp; 2026</div>
+
+  <div id="bar-wrap">
+    <div id="bar-track" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+      <div id="bar-fill"></div>
+    </div>
+    <div id="bar-label">Loading</div>
+  </div>
+
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────
+// Particle system
+// ─────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const cx = canvas.getContext('2d');
+let W, H, particles;
+
+const COUNT    = 90;
+const MAX_DIST = 145;
+const COLORS   = [
+  'rgba(255,255,255,',
+  'rgba(255,255,255,',
+  'rgba(147,197,253,',
+  'rgba(96,165,250,',
+  'rgba(255,255,255,',
+];
+
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+
+function mkParticle() {
+  return {
+    x:  Math.random() * W,
+    y:  Math.random() * H,
+    vx: (Math.random() - .5) * 0.7,
+    vy: (Math.random() - .5) * 0.7,
+    r:  0.8 + Math.random() * 1.4,
+    op: 0.2 + Math.random() * 0.45,
+    color: COLORS[Math.floor(Math.random() * COLORS.length)],
+    pulse: Math.random() * Math.PI * 2,
+    ps:   0.008 + Math.random() * 0.014,
+  };
+}
+
+function init() { particles = Array.from({ length: COUNT }, mkParticle); }
+
+let mouse = { x: -9999, y: -9999 };
+document.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+
+function frame() {
+  cx.clearRect(0, 0, W, H);
+
+  for (const p of particles) {
+    const mdx = p.x - mouse.x;
+    const mdy = p.y - mouse.y;
+    const md  = Math.sqrt(mdx * mdx + mdy * mdy);
+    if (md < 110 && md > 0) {
+      const f = (110 - md) / 110 * 0.35;
+      p.vx += (mdx / md) * f;
+      p.vy += (mdy / md) * f;
+    }
+    const spd = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+    if (spd > 2) { p.vx = p.vx / spd * 2; p.vy = p.vy / spd * 2; }
+    p.vx *= 0.994;
+    p.vy *= 0.994;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.pulse += p.ps;
+    if (p.x < -10) p.x = W + 10;
+    if (p.x > W + 10) p.x = -10;
+    if (p.y < -10) p.y = H + 10;
+    if (p.y > H + 10) p.y = -10;
+    const o = p.op * (0.82 + 0.18 * Math.sin(p.pulse));
+    cx.beginPath();
+    cx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    cx.fillStyle = p.color + o + ')';
+    cx.fill();
+  }
+
+  for (let i = 0; i < particles.length; i++) {
+    for (let j = i + 1; j < particles.length; j++) {
+      const a = particles[i], b = particles[j];
+      const dx = a.x - b.x, dy = a.y - b.y;
+      const d  = Math.sqrt(dx * dx + dy * dy);
+      if (d < MAX_DIST) {
+        const alpha = 0.18 * (1 - d / MAX_DIST);
+        cx.beginPath();
+        cx.moveTo(a.x, a.y);
+        cx.lineTo(b.x, b.y);
+        cx.strokeStyle = `rgba(147,197,253,${alpha})`;
+        cx.lineWidth = 0.55;
+        cx.stroke();
+      }
+    }
+  }
+
+  requestAnimationFrame(frame);
+}
+
+window.addEventListener('resize', () => { resize(); init(); });
+resize(); init(); frame();
+
+// ─────────────────────────────────────────────────────────────────
+// Config
+// ─────────────────────────────────────────────────────────────────
+const CFG = {
+  wordmark:   "KGR Lab",
+  tagline:    "dream  ·  believe  ·  deliver",
+  typeSpeed:  105,
+  tagSpeed:   44,
+  splashMs:   3800,
+  startDelay: 350,
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Audio
+// ─────────────────────────────────────────────────────────────────
+let actx = null;
+function initAudio() {
+  if (actx) return;
+  try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+}
+function click(vol = 0.12) {
+  if (!actx) return;
+  try {
+    const buf  = actx.createBuffer(1, actx.sampleRate * 0.032, actx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++)
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 10) * vol;
+    const src = actx.createBufferSource();
+    const bpf = actx.createBiquadFilter();
+    bpf.type = 'bandpass'; bpf.frequency.value = 3200; bpf.Q.value = 1;
+    src.buffer = buf;
+    src.connect(bpf); bpf.connect(actx.destination);
+    src.start();
+  } catch(e) {}
+}
+['click','keydown','touchstart'].forEach(e =>
+  document.addEventListener(e, initAudio, { once: true })
+);
+setTimeout(initAudio, 80);
+
+// ─────────────────────────────────────────────────────────────────
+// Typewriter — wordmark
+// ─────────────────────────────────────────────────────────────────
+const wordmarkEl = document.getElementById('wordmark');
+const typedEl    = document.getElementById('typed-text');
+const cursorEl   = document.getElementById('cursor');
+const taglineEl  = document.getElementById('tagline');
+const dividerEl  = document.getElementById('divider');
+const subtitleEl = document.getElementById('subtitle');
+const barWrapEl  = document.getElementById('bar-wrap');
+const barFillEl  = document.getElementById('bar-fill');
+const barLabelEl = document.getElementById('bar-label');
+
+setTimeout(() => wordmarkEl.classList.add('in'), 60);
+
+const CLICK_SET = new Set('KGRLb');
+let wIdx = 0;
+
+function typeWordmark() {
+  if (wIdx < CFG.wordmark.length) {
+    const ch = CFG.wordmark[wIdx++];
+    typedEl.textContent += ch;
+    if (CLICK_SET.has(ch)) click(0.12);
+    setTimeout(typeWordmark, CFG.typeSpeed + (Math.random() * 28 - 14));
+  } else {
+    setTimeout(() => {
+      cursorEl.classList.add('hide');
+      dividerEl.classList.add('in');
+      setTimeout(() => {
+        startTagline();
+        setTimeout(() => subtitleEl.classList.add('in'), 600);
+      }, 500);
+      startBar();
+    }, 320);
+  }
+}
+setTimeout(typeWordmark, CFG.startDelay);
+
+// ─────────────────────────────────────────────────────────────────
+// Typewriter — tagline
+// ─────────────────────────────────────────────────────────────────
+function startTagline() {
+  taglineEl.classList.add('ready');
+  taglineEl.innerHTML = [...CFG.tagline].map(ch => {
+    const cls  = ch === '·' ? 'ch dot' : 'ch';
+    const safe = ch === ' ' ? '&nbsp;' : ch;
+    return `<span class="${cls}">${safe}</span>`;
+  }).join('');
+
+  const spans = taglineEl.querySelectorAll('.ch');
+  const WORD_STARTS = new Set('dbl');
+  let tIdx = 0;
+
+  function typeTag() {
+    if (tIdx < spans.length) {
+      spans[tIdx].classList.add('show');
+      if (WORD_STARTS.has(CFG.tagline[tIdx])) click(0.08);
+      tIdx++;
+      setTimeout(typeTag, CFG.tagSpeed + (Math.random() * 12 - 6));
+    }
+  }
+  setTimeout(typeTag, 100);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Loading bar
+// ─────────────────────────────────────────────────────────────────
+function startBar() {
+  barWrapEl.classList.add('in');
+  setTimeout(() => {
+    barFillEl.style.transition = 'width 1400ms cubic-bezier(.4,0,.6,1)';
+    barFillEl.style.width = '100%';
+    setTimeout(() => {
+      barFillEl.classList.add('done');
+      barLabelEl.textContent = 'Ready';
+      barLabelEl.style.color = 'rgba(147,197,253,.6)';
+    }, 1400);
+  }, 60);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Fade out → redirect to app
+// ─────────────────────────────────────────────────────────────────
+setTimeout(() => {
+  document.getElementById('splash').classList.add('out');
+  // After fade completes, go to the main app
+  setTimeout(() => {
+    window.location.href = '/';
+  }, 1000);
+}, CFG.splashMs);
+</script>
+</body>
+</html>
