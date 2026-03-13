@@ -30,32 +30,39 @@ export function tokenizeUnicode(text) {
   try {
     return [...text.matchAll(/\p{L}+/gu)].map(m => m[0].toLowerCase());
   } catch {
-    // Fallback for older environments
     return (text.toLowerCase().match(/[a-záéíóúüñàèìòùâêîôûäëïöü]+/g) || []);
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stemmer — strips common English + Spanish suffixes
-// Normalizes tumor/tumors, ablation/ablaciones etc.
+// Stemmer — FIX: longer suffixes must be checked before shorter ones
+// so "ically" fires before "ical", "ations" before "tion", etc.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function stem(word) {
-  return word
-    .replace(/aciones$/, "")
-    .replace(/ación$/,   "")
-    .replace(/iones$/,   "")
-    .replace(/ión$/,     "")
-    .replace(/ments?$/,  "")
-    .replace(/ations?$/, "")
-    .replace(/ings?$/,   "")
-    .replace(/tion$/,    "")
-    .replace(/ness$/,    "")
-    .replace(/ical$/,    "")
-    .replace(/ally$/,    "")
-    .replace(/ically$/,  "")
-    .replace(/ers?$/,    "")
-    .replace(/s$/,       "");
+  // Spanish first (longest → shortest)
+  if (/aciones$/.test(word)) return word.replace(/aciones$/, "");
+  if (/ación$/.test(word))   return word.replace(/ación$/, "");
+  if (/iones$/.test(word))   return word.replace(/iones$/, "");
+  if (/ión$/.test(word))     return word.replace(/ión$/, "");
+
+  // English (longest → shortest)
+  if (/ically$/.test(word))  return word.replace(/ically$/, "");
+  if (/ations$/.test(word))  return word.replace(/ations$/, "");
+  if (/ation$/.test(word))   return word.replace(/ation$/, "");
+  if (/ments$/.test(word))   return word.replace(/ments$/, "");
+  if (/ment$/.test(word))    return word.replace(/ment$/, "");
+  if (/ings$/.test(word))    return word.replace(/ings$/, "");
+  if (/ing$/.test(word))     return word.replace(/ing$/, "");
+  if (/ness$/.test(word))    return word.replace(/ness$/, "");
+  if (/ical$/.test(word))    return word.replace(/ical$/, "");
+  if (/ally$/.test(word))    return word.replace(/ally$/, "");
+  if (/tion$/.test(word))    return word.replace(/tion$/, "");
+  if (/ers$/.test(word))     return word.replace(/ers$/, "");
+  if (/er$/.test(word))      return word.replace(/er$/, "");
+  if (/s$/.test(word))       return word.replace(/s$/, "");
+
+  return word;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -102,27 +109,95 @@ export function topUniqueTerms(cardText, peerTexts, n = 6) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Keyword engine
+// FIX: IDF weighting — filter words that appear in >60% of responses
+// so suggestions are distinctive, not just frequent across all cards
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function suggestedKeywords(responses, n = 8) {
-  const freq = {};
+  if (responses.length === 0) return [];
+
+  const termDocCount = {}; // how many responses contain this word
+  const termFreq     = {}; // total occurrences across all responses
+
   responses.forEach(r => {
-    tokenizeUnicode(r)
-      .filter(w => w.length >= 4 && !STOP_WORDS.has(w))
-      .forEach(w => { freq[w] = (freq[w] || 0) + 1; });
+    const tokens = tokenizeUnicode(r).filter(w => w.length >= 4 && !STOP_WORDS.has(w));
+    const seenInDoc = new Set();
+    tokens.forEach(w => {
+      termFreq[w] = (termFreq[w] || 0) + 1;
+      if (!seenInDoc.has(w)) {
+        termDocCount[w] = (termDocCount[w] || 0) + 1;
+        seenInDoc.add(w);
+      }
+    });
   });
-  return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, n).map(([w]) => w);
+
+  const total = responses.length;
+  const UBIQUITY_THRESHOLD = 0.6; // ignore words in >60% of responses
+
+  return Object.entries(termFreq)
+    .filter(([w]) => {
+      const docFreq = (termDocCount[w] || 0) / total;
+      return docFreq <= UBIQUITY_THRESHOLD; // keep distinctive terms only
+    })
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([w]) => w);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Keyword matching
+// FIX: O(tokens) Set lookup instead of O(tokens × keywords)
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function countKeywordMatches(text, keywords, partialMatch) {
   if (!text || !keywords.length) return 0;
-  let count = 0;
-  tokenizeUnicode(text).forEach(tok => {
-    keywords.forEach(kw => {
-      const kwClean = kw.term.toLowerCase();
-      const matches = partialMatch ? tok.includes(kwClean) : tok === kwClean;
-      if (matches) count++;
+  const tokens = tokenizeUnicode(text);
+
+  if (partialMatch) {
+    // Partial: must check includes() — can't use a Set, keep O(tokens × keywords)
+    // but this is expected for partial match, not a bug
+    let count = 0;
+    tokens.forEach(tok => {
+      keywords.forEach(kw => {
+        if (tok.includes(kw.term.toLowerCase())) count++;
+      });
     });
+    return count;
+  }
+
+  // Whole word: build a Set from keyword terms for O(1) lookup per token
+  const kwSet = new Set(keywords.map(kw => kw.term.toLowerCase()));
+  return tokens.filter(tok => kwSet.has(tok)).length;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Diff precomputation — call this ONCE before render, not inside the loop
+// Returns a Map keyed by cardKey → { dWords, dScore, tTerms }
+// FIX: memoize expensive wordSet/diffScore calls outside render
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function precomputeDiff(cards, showTopTerms) {
+  // cards: [{ key, response, peers: [responseText] }]
+  const result = new Map();
+  cards.forEach(({ key, response, peers }) => {
+    if (!response) {
+      result.set(key, { dWords: null, dScore: 0, tTerms: [] });
+      return;
+    }
+    const dWords = computeUniqueWords(response, peers);
+    const dScore = diffScore(response, peers);
+    const tTerms = showTopTerms ? topUniqueTerms(response, peers, 6) : [];
+    result.set(key, { dWords, dScore, tTerms });
   });
-  return count;
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cross-language diff warning
+// Returns true if the comparison is mixing languages — diff % will be inflated
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function isCrossLanguageDiff(rowDim, colDim, selLangs) {
+  const comparingLangs = rowDim === "language" || colDim === "language";
+  return comparingLangs && selLangs.length > 1;
 }
