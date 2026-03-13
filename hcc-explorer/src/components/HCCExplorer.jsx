@@ -1,7 +1,4 @@
-// components/HCCExplorer.jsx
-// Receives the flat `data` array as a prop.
-// All questions, therapies, and models are derived at runtime — nothing hardcoded.
-// UI, layout, and interaction logic are preserved exactly from the prototype.
+// src/components/HCCExplorer.jsx
 
 import { useState, useMemo, useRef, useEffect } from "react";
 import {
@@ -12,10 +9,10 @@ import {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sub-components (visually identical to prototype)
+// Sub-components
 // ─────────────────────────────────────────────────────────────────────────────
 
-function Checkbox({ checked, onChange, label, count }) {
+function Checkbox({ checked, onChange, label }) {
   return (
     <label style={{
       display: "flex", alignItems: "center", gap: 12,
@@ -39,9 +36,6 @@ function Checkbox({ checked, onChange, label, count }) {
       <span style={{ fontSize: 14, color: "#111", fontWeight: 400, flex: 1, letterSpacing: 0.1 }}>
         {label}
       </span>
-      {count !== undefined && (
-        <span style={{ fontSize: 13, color: "#8d8d8d" }}>{count}</span>
-      )}
     </label>
   );
 }
@@ -101,8 +95,7 @@ function SortByDropdown({ colDim, rowDim, onChange }) {
           const active   = activeDim === opt;
           const disabled = opt !== null && opt === blockedDim;
           return (
-            <button key={String(opt)} disabled={disabled}
-              onClick={() => onPick(opt)}
+            <button key={String(opt)} disabled={disabled} onClick={() => onPick(opt)}
               style={{
                 padding: "6px 14px", borderRadius: 2,
                 border: `1.5px solid ${active ? "#111" : "#e5e5e5"}`,
@@ -110,8 +103,7 @@ function SortByDropdown({ colDim, rowDim, onChange }) {
                 color: active ? "#fff" : disabled ? "#ccc" : "#111",
                 fontSize: 13, fontWeight: active ? 600 : 400,
                 cursor: disabled ? "not-allowed" : "pointer",
-                fontFamily: "'Helvetica Neue', Arial, sans-serif",
-                letterSpacing: 0.2,
+                fontFamily: "'Helvetica Neue', Arial, sans-serif", letterSpacing: 0.2,
               }}>
               {optLabel(opt)}
             </button>
@@ -124,48 +116,32 @@ function SortByDropdown({ colDim, rowDim, onChange }) {
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <button onClick={() => setOpen(o => !o)} style={{
-        display: "inline-flex", alignItems: "center", gap: 8,
-        padding: "0 4px", background: "none", border: "none",
-        fontSize: 15, fontWeight: 500, color: "#111",
-        cursor: "pointer", fontFamily: "'Helvetica Neue', Arial, sans-serif",
-        letterSpacing: 0.2,
+        display: "inline-flex", alignItems: "center", gap: 6,
+        padding: "0", background: "none", border: "none",
+        fontSize: 14, fontWeight: 500, color: "#111",
+        cursor: "pointer", fontFamily: "'Helvetica Neue', Arial, sans-serif", letterSpacing: 0.2,
       }}>
         Sort By
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-          stroke="#111" strokeWidth="3"
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="3"
           style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>
           <polyline points="6 9 12 15 18 9"/>
         </svg>
       </button>
-
       {open && (
         <div style={{
           position: "absolute", right: 0, top: "calc(100% + 10px)", zIndex: 300,
           background: "#fff", border: "1px solid #e5e5e5", borderRadius: 4,
-          boxShadow: "0 8px 32px rgba(0,0,0,.12)", padding: "20px 20px 16px",
-          minWidth: 280,
+          boxShadow: "0 8px 32px rgba(0,0,0,.12)", padding: "20px 20px 16px", minWidth: 280,
         }}>
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5,
-              textTransform: "uppercase", color: "#8d8d8d", marginBottom: 10 }}>
-              Columns
-            </div>
-            <OptionButtons
-              activeDim={colDim}
-              blockedDim={rowDim}
-              onPick={val => onChange(val, rowDim)}
-            />
+              textTransform: "uppercase", color: "#8d8d8d", marginBottom: 10 }}>Columns</div>
+            <OptionButtons activeDim={colDim} blockedDim={rowDim} onPick={val => onChange(val, rowDim)}/>
           </div>
           <div style={{ borderTop: "1px solid #e5e5e5", paddingTop: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5,
-              textTransform: "uppercase", color: "#8d8d8d", marginBottom: 10 }}>
-              Rows
-            </div>
-            <OptionButtons
-              activeDim={rowDim}
-              blockedDim={colDim}
-              onPick={val => onChange(colDim, val)}
-            />
+              textTransform: "uppercase", color: "#8d8d8d", marginBottom: 10 }}>Rows</div>
+            <OptionButtons activeDim={rowDim} blockedDim={colDim} onPick={val => onChange(colDim, val)}/>
           </div>
           <div style={{ borderTop: "1px solid #e5e5e5", marginTop: 14, paddingTop: 10,
             fontSize: 12, color: "#8d8d8d", letterSpacing: 0.2 }}>
@@ -177,7 +153,6 @@ function SortByDropdown({ colDim, rowDim, onChange }) {
   );
 }
 
-// `repetition` replaces the prototype's `run` prop (same data, correct field name)
 function ResponseCard({ model, language, therapy, repetition, response }) {
   const mc = MODEL_META[model]?.color || "#111";
   const ml = MODEL_META[model]?.label || model;
@@ -199,9 +174,7 @@ function ResponseCard({ model, language, therapy, repetition, response }) {
         <span style={{ fontSize: 11, fontWeight: 600, color: lc }}>{language}</span>
         <span style={{ color: "#ddd" }}>·</span>
         <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 2,
-          background: tc + "18", color: tc }}>
-          {therapy}
-        </span>
+          background: tc + "18", color: tc }}>{therapy}</span>
         <span style={{ marginLeft: "auto", fontSize: 10, color: "#aaa", letterSpacing: 0.3 }}>
           Rep {repetition}
         </span>
@@ -211,9 +184,7 @@ function ResponseCard({ model, language, therapy, repetition, response }) {
         whiteSpace: "pre-wrap", overflowY: "auto", maxHeight: 500,
         fontFamily: "'Georgia', serif", flex: 1,
       }}>
-        {response || (
-          <span style={{ color: "#bbb", fontStyle: "italic" }}>No data for this combination</span>
-        )}
+        {response || <span style={{ color: "#bbb", fontStyle: "italic" }}>No data for this combination</span>}
       </div>
     </div>
   );
@@ -226,11 +197,10 @@ function ResponseCard({ model, language, therapy, repetition, response }) {
 
 export default function HCCExplorer({ data }) {
 
-  // ── Derive stable lists from the flat array ─────────────────────────────
-  // Replaces hardcoded Q_META and the RAW_DATA.flatMap(Object.keys) model scan.
+  // ── Derive lists from data ───────────────────────────────────────────────
 
   const questions = useMemo(() => {
-    const seen = new Map(); // q_num → topic, insertion-ordered
+    const seen = new Map();
     data.forEach(r => { if (!seen.has(r.q_num)) seen.set(r.q_num, r.topic); });
     return [...seen.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
@@ -242,43 +212,53 @@ export default function HCCExplorer({ data }) {
     [data]
   );
 
-  // ── Filter state ────────────────────────────────────────────────────────
-  // Default selections match prototype defaults wherever possible.
-  // selReps stores integers (1|2|3) matching responses.json; prototype stored strings.
+  // ── Filter state ─────────────────────────────────────────────────────────
 
-  const [selQ,         setSelQ]         = useState(() => questions[0]?.q_num ?? "Q1");
+  const [selQ,         setSelQ]         = useState("Q1");
   const [selTherapies, setSelTherapies] = useState(["General"]);
   const [selLangs,     setSelLangs]     = useState(["English", "Spanish"]);
-  const [selModels,    setSelModels]    = useState(allModels);
+  const [selModels,    setSelModels]    = useState([]);
   const [selReps,      setSelReps]      = useState([1]);
   const [showFilters,  setShowFilters]  = useState(true);
   const [colDim,       setColDim]       = useState("model");
   const [rowDim,       setRowDim]       = useState("language");
 
-  // ── Therapies available for the selected question ───────────────────────
+  // Sync once data loads
+  useEffect(() => {
+    if (data.length === 0) return;
+    const firstQ  = [...new Set(data.map(r => r.q_num))].sort()[0];
+    const models  = [...new Set(data.map(r => r.model))].sort();
+    const firstQTherapies = [...new Set(data.filter(r => r.q_num === firstQ).map(r => r.therapy))].sort();
+    setSelQ(firstQ);
+    setSelModels(models);
+    setSelTherapies(firstQTherapies); // select ALL therapies for first question
+  }, [data]);
+
+  // ── Therapies available for selected question ────────────────────────────
 
   const availTherapies = useMemo(
     () => [...new Set(data.filter(r => r.q_num === selQ).map(r => r.therapy))].sort(),
     [data, selQ]
   );
 
-  // ── Event handlers ──────────────────────────────────────────────────────
+  // ── Derived breadcrumb values ────────────────────────────────────────────
+
+  const currentTopic    = questions.find(q => q.q_num === selQ)?.topic ?? selQ;
+  const therapyLabel    = selTherapies.length === 1 ? selTherapies[0]
+                        : selTherapies.length === availTherapies.length ? "All Therapies"
+                        : `${selTherapies.length} Therapies`;
+
+  // ── Event handlers ───────────────────────────────────────────────────────
 
   function handleQSelect(q) {
     setSelQ(q);
-    const t = [...new Set(data.filter(r => r.q_num === q).map(r => r.therapy))];
-    if (t.length === 1) {
-      setSelTherapies([t[0]]);
-    } else {
-      setSelTherapies(prev => {
-        const valid = prev.filter(x => t.includes(x));
-        return valid.length ? valid : [t[0]];
-      });
-    }
+    // BUG FIX: always reset to ALL available therapies for the new question.
+    // Previously, stale selections from the previous question were kept,
+    // causing checkboxes to appear checked but produce no cards.
+    const t = [...new Set(data.filter(r => r.q_num === q).map(r => r.therapy))].sort();
+    setSelTherapies(t);
   }
 
-  // toggle(val, setter) — prototype had toggle(val, sel, setSel); simplified since
-  // we don't need to pass the current array separately
   function toggle(val, setter) {
     setter(prev => prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]);
   }
@@ -289,7 +269,7 @@ export default function HCCExplorer({ data }) {
     setRowDim(newRow);
   }
 
-  // ── Selection map (used by cross-product and getResponse) ───────────────
+  // ── Selection map ────────────────────────────────────────────────────────
 
   const selValues = {
     therapy:    selTherapies,
@@ -298,9 +278,7 @@ export default function HCCExplorer({ data }) {
     repetition: selReps,
   };
 
-  // ── Prompt text shown above the grid ────────────────────────────────────
-  // Prompt is identical across models for the same q_num+therapy+language,
-  // so any single matching record is representative.
+  // ── Prompt text ──────────────────────────────────────────────────────────
 
   const promptText = useMemo(() => {
     const r = data.find(rec =>
@@ -311,21 +289,19 @@ export default function HCCExplorer({ data }) {
     return r?.prompt ?? "";
   }, [data, selQ, selTherapies, selLangs]);
 
-  // ── Response lookup ─────────────────────────────────────────────────────
-  // Replaces: RAW_DATA.find(d => …).responses[model][run]
-  // Now:      flat .find() across all 324 records
+  // ── Response lookup ──────────────────────────────────────────────────────
 
   function getResponse({ therapy, language, model, repetition }) {
     return data.find(r =>
-      r.q_num      === selQ      &&
-      r.therapy    === therapy   &&
-      r.language   === language  &&
-      r.model      === model     &&
+      r.q_num      === selQ       &&
+      r.therapy    === therapy    &&
+      r.language   === language   &&
+      r.model      === model      &&
       r.repetition === repetition
     )?.response ?? null;
   }
 
-  // ── Cross-product grid logic (unchanged from prototype) ─────────────────
+  // ── Grid ─────────────────────────────────────────────────────────────────
 
   const freeDims = ALL_DIMS.map(d => d.id).filter(d => d !== colDim && d !== rowDim);
 
@@ -344,30 +320,72 @@ export default function HCCExplorer({ data }) {
   const showRowLabels  = !!rowDim;
   const rowLabelWidth  = showRowLabels ? 120 : 0;
 
+  // Nav height: top bar (48) + explorer bar (48) = 96px total
+  const NAV_HEIGHT = 96;
 
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div style={{ fontFamily: "'Helvetica Neue', Arial, sans-serif", background: "#f5f5f5", minHeight: "100vh", color: "#111" }}>
 
-      {/* ── Nav ── */}
+      {/* ── Top bar (site-level nav) ── */}
       <div style={{
         background: "#fff", borderBottom: "1px solid #e5e5e5",
-        padding: "0 32px", display: "flex", alignItems: "center", height: 56,
-        position: "sticky", top: 0, zIndex: 100,
+        padding: "0 32px", display: "flex", alignItems: "center", height: 48,
+        position: "sticky", top: 0, zIndex: 200,
       }}>
-        <span style={{ fontSize: 15, fontWeight: 700, color: "#111", letterSpacing: 0.3, flex: 1 }}>
-          HCC Response Explorer
+        {/* Logo / site name */}
+        <span style={{ fontSize: 16, fontWeight: 800, color: "#111", letterSpacing: 0.5, marginRight: 40 }}>
+          KGRT Lab
         </span>
-        <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+
+        {/* Nav links */}
+        <div style={{ display: "flex", alignItems: "center", gap: 28, flex: 1 }}>
+          {["About", "Study", "Methods", "Results"].map(link => (
+            <a key={link} href="#" style={{
+              fontSize: 14, fontWeight: 500, color: "#111",
+              textDecoration: "none", letterSpacing: 0.2,
+              borderBottom: link === "Results" ? "2px solid #111" : "2px solid transparent",
+              paddingBottom: 2,
+            }}
+              onClick={e => e.preventDefault()}
+            >
+              {link}
+            </a>
+          ))}
+        </div>
+
+        {/* Right side placeholder */}
+        <span style={{ fontSize: 13, color: "#8d8d8d" }}>HCC Patient Education Study</span>
+      </div>
+
+      {/* ── Explorer bar (section-level) ── */}
+      <div style={{
+        background: "#fff", borderBottom: "1px solid #e5e5e5",
+        padding: "0 32px", display: "flex", alignItems: "center", height: 48,
+        position: "sticky", top: 48, zIndex: 199,
+      }}>
+        {/* Breadcrumb */}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#8d8d8d" }}>
+          <span style={{ color: "#111", fontWeight: 600 }}>HCC Explorer</span>
+          <span>/</span>
+          <span>{selQ}</span>
+          <span>/</span>
+          <span>{currentTopic}</span>
+          <span>/</span>
+          <span style={{ color: "#111", fontWeight: 500 }}>{therapyLabel}</span>
+        </div>
+
+        {/* Controls */}
+        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
           <button onClick={() => setShowFilters(f => !f)} style={{
-            display: "inline-flex", alignItems: "center", gap: 8,
+            display: "inline-flex", alignItems: "center", gap: 6,
             background: "none", border: "none", cursor: "pointer",
-            fontSize: 15, fontWeight: 500, color: "#111",
+            fontSize: 14, fontWeight: 500, color: "#111",
             fontFamily: "'Helvetica Neue', Arial, sans-serif", letterSpacing: 0.2,
           }}>
             {showFilters ? "Hide Filters" : "Show Filters"}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="2">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="2">
               <line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="#111"/>
               <line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2" fill="#111"/>
               <line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2" fill="#111"/>
@@ -377,7 +395,8 @@ export default function HCCExplorer({ data }) {
         </div>
       </div>
 
-      <div style={{ display: "flex", height: "calc(100vh - 56px)" }}>
+      {/* ── Body ── */}
+      <div style={{ display: "flex", height: `calc(100vh - ${NAV_HEIGHT}px)` }}>
 
         {/* ── Sidebar ── */}
         {showFilters && (
@@ -387,7 +406,7 @@ export default function HCCExplorer({ data }) {
             padding: "24px 24px 32px",
           }}>
 
-            {/* Questions — derived from data, replaces hardcoded Q_META + allQNums */}
+            {/* Questions */}
             <div style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5,
                 textTransform: "uppercase", color: "#8d8d8d", marginBottom: 14 }}>
@@ -413,7 +432,7 @@ export default function HCCExplorer({ data }) {
               })}
             </div>
 
-            {/* Therapy — derived from data for current question */}
+            {/* Therapy */}
             <AccordionSection title="Therapy">
               {availTherapies.map(val => (
                 <Checkbox key={val}
@@ -424,7 +443,7 @@ export default function HCCExplorer({ data }) {
               ))}
             </AccordionSection>
 
-            {/* Language — fixed set */}
+            {/* Language */}
             <AccordionSection title="Language">
               {ALL_LANGUAGES.map(val => (
                 <Checkbox key={val}
@@ -435,7 +454,7 @@ export default function HCCExplorer({ data }) {
               ))}
             </AccordionSection>
 
-            {/* Model — derived from data */}
+            {/* Model */}
             <AccordionSection title="Model">
               {allModels.map(val => (
                 <Checkbox key={val}
@@ -446,7 +465,7 @@ export default function HCCExplorer({ data }) {
               ))}
             </AccordionSection>
 
-            {/* Repetition — fixed set; replaces prototype's "Run" with integer keys */}
+            {/* Repetition */}
             <AccordionSection title="Repetition">
               {ALL_REPETITIONS.map(val => (
                 <Checkbox key={val}
@@ -491,11 +510,9 @@ export default function HCCExplorer({ data }) {
                 <div key={String(colVal)} style={{
                   padding: "8px 14px", background: "#fff",
                   borderTop: `2px solid ${colDim ? dimColor(colDim, colVal) : "#111"}`,
-                  border: "1px solid #e5e5e5",
-                  borderRadius: 2, textAlign: "center",
+                  border: "1px solid #e5e5e5", borderRadius: 2, textAlign: "center",
                   fontSize: 13, fontWeight: 700,
-                  color: colDim ? dimColor(colDim, colVal) : "#111",
-                  letterSpacing: 0.3,
+                  color: colDim ? dimColor(colDim, colVal) : "#111", letterSpacing: 0.3,
                 }}>
                   {colDim ? dimLabel(colDim, colVal) : ""}
                 </div>
@@ -510,40 +527,30 @@ export default function HCCExplorer({ data }) {
               gridTemplateColumns: `${rowLabelWidth ? rowLabelWidth + "px " : ""}repeat(${effectiveCols.length}, 1fr)`,
               gap: 12, marginBottom: 16, alignItems: "start",
             }}>
-
               {showRowLabels && (
                 <div style={{ paddingRight: 14, paddingTop: 12, borderRight: "1px solid #e5e5e5" }}>
-                  <span style={{
-                    fontSize: 13, fontWeight: 700, letterSpacing: 0.3,
-                    color: rowDim ? dimColor(rowDim, rowVal) : "#111",
-                  }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.3,
+                    color: rowDim ? dimColor(rowDim, rowVal) : "#111" }}>
                     {rowDim ? dimLabel(rowDim, rowVal) : ""}
                   </span>
                 </div>
               )}
-
               {effectiveCols.map(colVal => {
-                // Build one card per free-dimension combo, filling in the fixed axis values
                 const cards = freeCombos.map(freeCombo => {
                   const full = { ...freeCombo };
                   if (colDim && colVal !== null) full[colDim] = colVal;
                   if (rowDim && rowVal !== null) full[rowDim] = rowVal;
-                  // Fallback: any dim not yet assigned gets the first selected value
                   ALL_DIMS.forEach(({ id }) => {
                     if (full[id] === undefined) full[id] = selValues[id][0];
                   });
                   return { ...full, response: getResponse(full) };
                 });
-
                 return (
                   <div key={String(colVal)} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                     {cards.map((card, k) => (
-                      <ResponseCard
-                        key={k}
-                        model={card.model}
-                        language={card.language}
-                        therapy={card.therapy}
-                        repetition={card.repetition}
+                      <ResponseCard key={k}
+                        model={card.model} language={card.language}
+                        therapy={card.therapy} repetition={card.repetition}
                         response={card.response}
                       />
                     ))}
