@@ -341,7 +341,7 @@ export default function HCCExplorer({ data }) {
 
         {/* Nav links */}
         <div style={{ display: "flex", alignItems: "center", gap: 28, flex: 1 }}>
-          {["About", "Study", "Methods", "Results"].map(link => (
+          {["About", "Background", "Abstract", "HCC Response Explorer"].map(link => (
             <a key={link} href="#" style={{
               fontSize: 14, fontWeight: 500, color: "#111",
               textDecoration: "none", letterSpacing: 0.2,
