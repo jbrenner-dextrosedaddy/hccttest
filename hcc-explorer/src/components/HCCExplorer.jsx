@@ -61,7 +61,6 @@ function AccordionSection({ title, children, defaultOpen = true }) {
       >
         <span style={{
           fontSize: 15, fontWeight: 700, color: "#111", letterSpacing: 0.2,
-          border: open ? "2px solid #1a73e8" : "2px solid transparent",
           padding: "2px 0",
         }}>
           {title}
@@ -203,8 +202,6 @@ function ResponseCard({ model, language, therapy, repetition, response }) {
 
 export default function HCCExplorer({ data }) {
 
-  // ── Derive lists from data ───────────────────────────────────────────────
-
   const questions = useMemo(() => {
     const seen = new Map();
     data.forEach(r => { if (!seen.has(r.q_num)) seen.set(r.q_num, r.topic); });
@@ -218,8 +215,6 @@ export default function HCCExplorer({ data }) {
     [data]
   );
 
-  // ── Filter state ─────────────────────────────────────────────────────────
-
   const [selQ,         setSelQ]         = useState("Q1");
   const [selTherapies, setSelTherapies] = useState(["General"]);
   const [selLangs,     setSelLangs]     = useState(["English", "Spanish"]);
@@ -229,38 +224,28 @@ export default function HCCExplorer({ data }) {
   const [colDim,       setColDim]       = useState("model");
   const [rowDim,       setRowDim]       = useState("language");
 
-  // Sync once data loads
   useEffect(() => {
     if (data.length === 0) return;
-    const firstQ  = [...new Set(data.map(r => r.q_num))].sort()[0];
-    const models  = [...new Set(data.map(r => r.model))].sort();
+    const firstQ = [...new Set(data.map(r => r.q_num))].sort()[0];
+    const models = [...new Set(data.map(r => r.model))].sort();
     const firstQTherapies = [...new Set(data.filter(r => r.q_num === firstQ).map(r => r.therapy))].sort();
     setSelQ(firstQ);
     setSelModels(models);
-    setSelTherapies(firstQTherapies); // select ALL therapies for first question
+    setSelTherapies(firstQTherapies);
   }, [data]);
-
-  // ── Therapies available for selected question ────────────────────────────
 
   const availTherapies = useMemo(
     () => [...new Set(data.filter(r => r.q_num === selQ).map(r => r.therapy))].sort(),
     [data, selQ]
   );
 
-  // ── Derived breadcrumb values ────────────────────────────────────────────
-
-  const currentTopic    = questions.find(q => q.q_num === selQ)?.topic ?? selQ;
-  const therapyLabel    = selTherapies.length === 1 ? selTherapies[0]
-                        : selTherapies.length === availTherapies.length ? "All Therapies"
-                        : `${selTherapies.length} Therapies`;
-
-  // ── Event handlers ───────────────────────────────────────────────────────
+  const currentTopic = questions.find(q => q.q_num === selQ)?.topic ?? selQ;
+  const therapyLabel = selTherapies.length === 1 ? selTherapies[0]
+                     : selTherapies.length === availTherapies.length ? "All Therapies"
+                     : `${selTherapies.length} Therapies`;
 
   function handleQSelect(q) {
     setSelQ(q);
-    // BUG FIX: always reset to ALL available therapies for the new question.
-    // Previously, stale selections from the previous question were kept,
-    // causing checkboxes to appear checked but produce no cards.
     const t = [...new Set(data.filter(r => r.q_num === q).map(r => r.therapy))].sort();
     setSelTherapies(t);
   }
@@ -275,16 +260,12 @@ export default function HCCExplorer({ data }) {
     setRowDim(newRow);
   }
 
-  // ── Selection map ────────────────────────────────────────────────────────
-
   const selValues = {
     therapy:    selTherapies,
     language:   selLangs,
     model:      selModels,
     repetition: selReps,
   };
-
-  // ── Prompt text ──────────────────────────────────────────────────────────
 
   const promptText = useMemo(() => {
     const r = data.find(rec =>
@@ -295,8 +276,6 @@ export default function HCCExplorer({ data }) {
     return r?.prompt ?? "";
   }, [data, selQ, selTherapies, selLangs]);
 
-  // ── Response lookup ──────────────────────────────────────────────────────
-
   function getResponse({ therapy, language, model, repetition }) {
     return data.find(r =>
       r.q_num      === selQ       &&
@@ -306,8 +285,6 @@ export default function HCCExplorer({ data }) {
       r.repetition === repetition
     )?.response ?? null;
   }
-
-  // ── Grid ─────────────────────────────────────────────────────────────────
 
   const freeDims = ALL_DIMS.map(d => d.id).filter(d => d !== colDim && d !== rowDim);
 
@@ -325,33 +302,26 @@ export default function HCCExplorer({ data }) {
   const showColHeaders = !!colDim;
   const showRowLabels  = !!rowDim;
   const rowLabelWidth  = showRowLabels ? 120 : 0;
-
-  // Nav height: top bar (48) + explorer bar (48) = 96px total
-  const NAV_HEIGHT = 96;
-
-  // ── Render ───────────────────────────────────────────────────────────────
+  const NAV_HEIGHT     = 96;
 
   return (
     <div style={{ fontFamily: "'Helvetica Neue', Arial, sans-serif", background: "#f5f5f5", minHeight: "100vh", color: "#111" }}>
 
-      {/* ── Top bar (site-level nav) ── */}
+      {/* ── Top bar ── */}
       <div style={{
         background: "#fff", borderBottom: "1px solid #e5e5e5",
         padding: "0 32px", display: "flex", alignItems: "center", height: 48,
         position: "sticky", top: 0, zIndex: 200,
       }}>
-        {/* Logo / site name */}
         <span style={{ fontSize: 16, fontWeight: 800, color: "#111", letterSpacing: 0.5, marginRight: 40 }}>
           KGRT Lab
         </span>
-
-        {/* Nav links */}
         <div style={{ display: "flex", alignItems: "center", gap: 28, flex: 1 }}>
-          {["About", "Background", "Abstract", "HCC Response Explorer"].map(link => (
+          {["About", "Background", "Abstract", "HCC Responses"].map(link => (
             <a key={link} href="#" style={{
               fontSize: 14, fontWeight: 500, color: "#111",
               textDecoration: "none", letterSpacing: 0.2,
-              borderBottom: link === "Results" ? "2px solid #111" : "2px solid transparent",
+              borderBottom: link === "HCC Responses" ? "2px solid #111" : "2px solid transparent",
               paddingBottom: 2,
             }}
               onClick={e => e.preventDefault()}
@@ -360,20 +330,17 @@ export default function HCCExplorer({ data }) {
             </a>
           ))}
         </div>
-
-        {/* Right side placeholder */}
         <span style={{ fontSize: 13, color: "#8d8d8d" }}>HCC Patient Education Study</span>
       </div>
 
-      {/* ── Explorer bar (section-level) ── */}
+      {/* ── Explorer bar ── */}
       <div style={{
         background: "#fff", borderBottom: "1px solid #e5e5e5",
         padding: "0 32px", display: "flex", alignItems: "center", height: 48,
         position: "sticky", top: 48, zIndex: 199,
       }}>
-        {/* Breadcrumb */}
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#8d8d8d" }}>
-          <span style={{ color: "#111", fontWeight: 600 }}>HCC Explorer</span>
+          <span style={{ color: "#111", fontWeight: 600 }}>HCC Responses</span>
           <span>/</span>
           <span>{selQ}</span>
           <span>/</span>
@@ -381,8 +348,6 @@ export default function HCCExplorer({ data }) {
           <span>/</span>
           <span style={{ color: "#111", fontWeight: 500 }}>{therapyLabel}</span>
         </div>
-
-        {/* Controls */}
         <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
           <button onClick={() => setShowFilters(f => !f)} style={{
             display: "inline-flex", alignItems: "center", gap: 6,
@@ -411,8 +376,6 @@ export default function HCCExplorer({ data }) {
             borderRight: "1px solid #e5e5e5", overflowY: "auto",
             padding: "24px 24px 32px",
           }}>
-
-            {/* Questions */}
             <div style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5,
                 textTransform: "uppercase", color: "#8d8d8d", marginBottom: 14 }}>
@@ -438,7 +401,6 @@ export default function HCCExplorer({ data }) {
               })}
             </div>
 
-            {/* Therapy */}
             <AccordionSection title="Therapy">
               {availTherapies.map(val => (
                 <Checkbox key={val}
@@ -449,7 +411,6 @@ export default function HCCExplorer({ data }) {
               ))}
             </AccordionSection>
 
-            {/* Language */}
             <AccordionSection title="Language">
               {ALL_LANGUAGES.map(val => (
                 <Checkbox key={val}
@@ -460,7 +421,6 @@ export default function HCCExplorer({ data }) {
               ))}
             </AccordionSection>
 
-            {/* Model */}
             <AccordionSection title="Model">
               {allModels.map(val => (
                 <Checkbox key={val}
@@ -471,7 +431,6 @@ export default function HCCExplorer({ data }) {
               ))}
             </AccordionSection>
 
-            {/* Repetition */}
             <AccordionSection title="Repetition">
               {ALL_REPETITIONS.map(val => (
                 <Checkbox key={val}
@@ -481,14 +440,12 @@ export default function HCCExplorer({ data }) {
                 />
               ))}
             </AccordionSection>
-
           </div>
         )}
 
         {/* ── Content ── */}
         <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", minWidth: 0 }}>
 
-          {/* Prompt bar */}
           {promptText && (
             <div style={{
               background: "#fff", border: "1px solid #e5e5e5", borderLeft: "3px solid #111",
@@ -504,7 +461,6 @@ export default function HCCExplorer({ data }) {
             </div>
           )}
 
-          {/* Column headers */}
           {showColHeaders && (
             <div style={{
               display: "grid",
@@ -526,7 +482,6 @@ export default function HCCExplorer({ data }) {
             </div>
           )}
 
-          {/* Rows */}
           {effectiveRows.map(rowVal => (
             <div key={String(rowVal)} style={{
               display: "grid",
