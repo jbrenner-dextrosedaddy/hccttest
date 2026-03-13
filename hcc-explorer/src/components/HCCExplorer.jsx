@@ -19,6 +19,12 @@ function Checkbox({ checked, onChange, label }) {
       padding: "6px 0", cursor: "pointer",
       fontFamily: "'Helvetica Neue', Arial, sans-serif",
     }}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        style={{ display: "none" }}
+      />
       <span style={{
         width: 18, height: 18, borderRadius: 2, flexShrink: 0,
         border: `1.5px solid ${checked ? "#111" : "#bbb"}`,
@@ -56,7 +62,7 @@ function AccordionSection({ title, children, defaultOpen = true }) {
         <span style={{
           fontSize: 15, fontWeight: 700, color: "#111", letterSpacing: 0.2,
           border: open ? "2px solid #1a73e8" : "2px solid transparent",
-          padding: "2px 8px", borderRadius: 4, transition: "border-color .12s",
+          padding: "2px 0",
         }}>
           {title}
         </span>
