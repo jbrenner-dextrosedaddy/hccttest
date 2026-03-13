@@ -1,9 +1,10 @@
 // src/components/Cards.jsx
-// ResponseCard, WordCountBar, TopTermsBadges
+// ResponseCard, WordCountBar, TopTermsBadges, HighlightedText
+// FIX: stem() imported from utils — no duplication
 
 import { useMemo } from "react";
 import { MODEL_META, THERAPY_COLOR, LANG_COLOR } from "../config/constants";
-import { wordCount, countKeywordMatches } from "../utils";
+import { wordCount, countKeywordMatches, stem } from "../utils";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WordCountBar
@@ -59,32 +60,43 @@ export function TopTermsBadges({ terms, color }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HighlightedText
+// FIX: uses imported stem() — single source of truth, no duplication
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function HighlightedText({ text, keywords, highlightStyle, partialMatch, diffWords, diffColor }) {
   const segments = useMemo(() => {
     if (!text) return [];
-    return text.split(/(\s+|[^\p{L}]+)/u).map(tok => {
-      const clean = tok.toLowerCase().replace(/[^\p{L}]/gu, "");
-      if (!clean) return { text: tok, type: "plain" };
 
-      // Keyword match
+    // Split preserving whitespace and punctuation as separate tokens
+    const parts = [];
+    let buf = "";
+    for (const ch of text) {
+      const isLetter = /\p{L}/u.test(ch);
+      if (isLetter) {
+        buf += ch;
+      } else {
+        if (buf) { parts.push({ tok: buf, isWord: true }); buf = ""; }
+        parts.push({ tok: ch, isWord: false });
+      }
+    }
+    if (buf) parts.push({ tok: buf, isWord: true });
+
+    return parts.map(({ tok, isWord }) => {
+      if (!isWord) return { text: tok, type: "plain" };
+
+      const clean = tok.toLowerCase();
+
+      // Keyword match — check before diff
       for (const kw of keywords) {
         const kwClean = kw.term.toLowerCase();
         const matches = partialMatch ? clean.includes(kwClean) : clean === kwClean;
         if (matches) return { text: tok, type: "keyword", color: kw.color };
       }
 
-      // Diff match — check stemmed form
+      // Diff match — use same stem() from utils (single source of truth)
       if (diffWords && clean.length >= 3) {
-        // stem the token to match against stemmed diffWords set
-        let s = clean
-          .replace(/aciones$/, "").replace(/ación$/, "").replace(/iones$/, "")
-          .replace(/ión$/, "").replace(/ments?$/, "").replace(/ations?$/, "")
-          .replace(/ings?$/, "").replace(/tion$/, "").replace(/ness$/, "")
-          .replace(/ical$/, "").replace(/ally$/, "").replace(/ically$/, "")
-          .replace(/ers?$/, "").replace(/s$/, "");
-        if (diffWords.has(s)) return { text: tok, type: "diff", color: diffColor };
+        const stemmed = stem(clean);
+        if (diffWords.has(stemmed)) return { text: tok, type: "diff", color: diffColor };
       }
 
       return { text: tok, type: "plain" };
@@ -95,6 +107,7 @@ export function HighlightedText({ text, keywords, highlightStyle, partialMatch, 
     <span>
       {segments.map((seg, i) => {
         if (seg.type === "plain") return <span key={i}>{seg.text}</span>;
+
         if (seg.type === "keyword") {
           return highlightStyle === "underline"
             ? <span key={i} style={{
@@ -108,13 +121,16 @@ export function HighlightedText({ text, keywords, highlightStyle, partialMatch, 
                 fontWeight: 600, fontStyle: "inherit",
               }}>{seg.text}</mark>;
         }
+
         if (seg.type === "diff") {
           return <mark key={i} style={{
             background: seg.color + "22", color: seg.color,
             borderRadius: 2, padding: "0 1px",
-            outline: `1px solid ${seg.color}44`, fontStyle: "inherit",
+            outline: `1px solid ${seg.color}44`,
+            fontStyle: "inherit",
           }}>{seg.text}</mark>;
         }
+
         return <span key={i}>{seg.text}</span>;
       })}
     </span>
@@ -133,6 +149,7 @@ export function ResponseCard({
   keywords, highlightStyle, partialMatch,
   fontSize, fontFamily,
   modelColor,
+  crossLanguageWarning,
 }) {
   const mc = modelColor || MODEL_META[model]?.color || "#111";
   const ml = MODEL_META[model]?.label || model;
@@ -177,20 +194,32 @@ export function ResponseCard({
       {showDiff && diffScoreValue !== undefined && (
         <div style={{
           padding: "4px 12px", borderBottom: "1px solid #f5f5f5",
-          background: "#fdfcff", display: "flex", alignItems: "center", gap: 6,
+          background: crossLanguageWarning ? "#fffbeb" : "#fdfcff",
+          display: "flex", alignItems: "center", gap: 6,
         }}>
-          <div style={{ flex: 1, height: 2, background: "#ede9fe", borderRadius: 1, overflow: "hidden" }}>
-            <div style={{
-              width: `${diffScoreValue}%`, height: "100%",
-              background: mc + "88", borderRadius: 1, transition: "width .3s",
-            }}/>
-          </div>
-          <span
-            style={{ fontSize: 10, color: "#7c3aed", whiteSpace: "nowrap", fontWeight: 600 }}
-            title="Percentage of vocabulary in this response that does not appear in comparison responses"
-          >
-            Different words: {diffScoreValue}%
-          </span>
+          {crossLanguageWarning ? (
+            // FIX: warn user that cross-language diff % is inflated
+            <span style={{ fontSize: 10, color: "#92400e", fontStyle: "italic" }}
+              title="Comparing responses in different languages inflates this score — words differ because of language, not content">
+              ⚠ Cross-language diff: {diffScoreValue}% (inflated)
+            </span>
+          ) : (
+            <>
+              <div style={{ flex: 1, height: 2, background: "#ede9fe",
+                borderRadius: 1, overflow: "hidden" }}>
+                <div style={{
+                  width: `${diffScoreValue}%`, height: "100%",
+                  background: mc + "88", borderRadius: 1, transition: "width .3s",
+                }}/>
+              </div>
+              <span
+                style={{ fontSize: 10, color: "#7c3aed", whiteSpace: "nowrap", fontWeight: 600 }}
+                title="Percentage of vocabulary in this response not found in comparison responses"
+              >
+                Different words: {diffScoreValue}%
+              </span>
+            </>
+          )}
         </div>
       )}
 
