@@ -1,15 +1,17 @@
 // src/components/HCCExplorer.jsx
 // Main orchestrator — state, data flow, layout only.
-// All logic lives in utils.js, Cards.jsx, Toolbar.jsx
+// FIX: diff precomputed in useMemo, not inside render loop
+// FIX: stable card keys (not array index)
+// FIX: cross-language warning passed to cards
 
 import { useState, useMemo, useEffect } from "react";
 import {
   ALL_DIMS, ALL_LANGUAGES, ALL_REPETITIONS,
-  MODEL_META, LANG_COLOR, dimColor, dimLabel,
+  MODEL_META, dimColor, dimLabel,
 } from "../config/constants";
 import {
-  wordCount, diffScore, computeUniqueWords,
-  topUniqueTerms, suggestedKeywords,
+  wordCount, precomputeDiff,
+  suggestedKeywords, isCrossLanguageDiff,
 } from "../utils";
 import { ResponseCard, HighlightedText } from "./Cards";
 import {
@@ -18,7 +20,7 @@ import {
 } from "./Toolbar";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Small local components (too simple to split out)
+// Small local components
 // ─────────────────────────────────────────────────────────────────────────────
 
 function Checkbox({ checked, onChange, label }) {
@@ -140,6 +142,9 @@ export default function HCCExplorer({ data }) {
                      : selTherapies.length === availTherapies.length ? "All Therapies"
                      : `${selTherapies.length} Therapies`;
 
+  // FIX: detect cross-language diff so cards can warn user
+  const crossLanguageWarning = showDiff && isCrossLanguageDiff(rowDim, colDim, selLangs);
+
   // ── Handlers ───────────────────────────────────────────────────────────────
 
   function handleQSelect(q) {
@@ -212,17 +217,16 @@ export default function HCCExplorer({ data }) {
   const showColHeaders = !!colDim;
   const showRowLabels  = !!rowDim;
   const rowLabelWidth  = showRowLabels ? 120 : 0;
+  const NAV_HEIGHT     = 136;
 
-  // topbar(48) + breadcrumb(48) + toolbar(40) = 136
-  const NAV_HEIGHT = 136;
+  // ── Max word count for bar scaling ─────────────────────────────────────────
 
-  // Max word count for scaling bars
   const maxWordCount = useMemo(() => {
     let max = 1;
     effectiveRows.forEach(rowVal => {
       effectiveCols.forEach(colVal => {
-        freeCombos.forEach(freeCombo => {
-          const full = { ...freeCombo };
+        freeCombos.forEach(fc => {
+          const full = { ...fc };
           if (colDim && colVal !== null) full[colDim] = colVal;
           if (rowDim && rowVal !== null) full[rowDim] = rowVal;
           ALL_DIMS.forEach(({ id }) => { if (full[id] === undefined) full[id] = selValues[id][0]; });
@@ -235,30 +239,91 @@ export default function HCCExplorer({ data }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selTherapies, selLangs, selModels, selReps, colDim, rowDim, selQ]);
 
-  // Peer responses for diff
-  function getPeerResponses(colVal, rowVal) {
-    const peers = [];
-    effectiveRows.forEach(rv => {
-      if (String(rv) === String(rowVal)) return;
-      freeCombos.forEach(freeCombo => {
-        const full = { ...freeCombo };
-        if (colDim && colVal !== null) full[colDim] = colVal;
-        if (rowDim && rv !== null) full[rowDim] = rv;
-        ALL_DIMS.forEach(({ id }) => { if (full[id] === undefined) full[id] = selValues[id][0]; });
-        const resp = getResponse(full);
-        if (resp) peers.push(resp);
+  // ── FIX: Precompute peer map ONCE, outside render ──────────────────────────
+  // Build { colVal → { rowVal → [peerResponses] } } so getPeerResponses is O(1)
+
+  const peerMap = useMemo(() => {
+    const map = new Map();
+    effectiveCols.forEach(colVal => {
+      const colKey = String(colVal);
+      if (!map.has(colKey)) map.set(colKey, new Map());
+      effectiveRows.forEach(rowVal => {
+        const peers = [];
+        effectiveRows.forEach(rv => {
+          if (String(rv) === String(rowVal)) return;
+          freeCombos.forEach(fc => {
+            const full = { ...fc };
+            if (colDim && colVal !== null) full[colDim] = colVal;
+            if (rowDim && rv !== null) full[rowDim] = rv;
+            ALL_DIMS.forEach(({ id }) => { if (full[id] === undefined) full[id] = selValues[id][0]; });
+            const resp = getResponse(full);
+            if (resp) peers.push(resp);
+          });
+        });
+        map.get(colKey).set(String(rowVal), peers);
       });
     });
-    return peers;
-  }
+    return map;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selTherapies, selLangs, selModels, selReps, colDim, rowDim, selQ]);
 
-  // All visible responses for suggested keywords
+  // ── FIX: Precompute diff results ONCE in useMemo ───────────────────────────
+  // Previously called computeUniqueWords/diffScore inside render — now memoized
+
+  const diffMap = useMemo(() => {
+    if (!showDiff) return new Map();
+
+    const cards = [];
+    effectiveRows.forEach(rowVal => {
+      effectiveCols.forEach(colVal => {
+        const colPeers = peerMap.get(String(colVal))?.get(String(rowVal)) || [];
+        freeCombos.forEach(fc => {
+          const full = { ...fc };
+          if (colDim && colVal !== null) full[colDim] = colVal;
+          if (rowDim && rowVal !== null) full[rowDim] = rowVal;
+          ALL_DIMS.forEach(({ id }) => { if (full[id] === undefined) full[id] = selValues[id][0]; });
+          full.response = getResponse(full);
+
+          // FIX: stable card key — not array index
+          const cardKey = [full.model, full.language, full.therapy, full.repetition].join("|");
+
+          // Within-cell peers (other freeCombos in same cell)
+          const cellPeerResponses = freeCombos
+            .filter(fc2 => {
+              const other = { ...fc2 };
+              if (colDim && colVal !== null) other[colDim] = colVal;
+              if (rowDim && rowVal !== null) other[rowDim] = rowVal;
+              ALL_DIMS.forEach(({ id }) => { if (other[id] === undefined) other[id] = selValues[id][0]; });
+              const otherKey = [other.model, other.language, other.therapy, other.repetition].join("|");
+              return otherKey !== cardKey;
+            })
+            .map(fc2 => {
+              const other = { ...fc2 };
+              if (colDim && colVal !== null) other[colDim] = colVal;
+              if (rowDim && rowVal !== null) other[rowDim] = rowVal;
+              ALL_DIMS.forEach(({ id }) => { if (other[id] === undefined) other[id] = selValues[id][0]; });
+              return getResponse(other);
+            })
+            .filter(Boolean);
+
+          const allPeers = [...colPeers, ...cellPeerResponses];
+          cards.push({ key: cardKey, response: full.response, peers: allPeers });
+        });
+      });
+    });
+
+    return precomputeDiff(cards, showTopTerms);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDiff, showTopTerms, selTherapies, selLangs, selModels, selReps, colDim, rowDim, selQ, peerMap]);
+
+  // ── Suggested keywords ─────────────────────────────────────────────────────
+
   const allVisibleResponses = useMemo(() => {
     const resps = [];
     effectiveRows.forEach(rowVal => {
       effectiveCols.forEach(colVal => {
-        freeCombos.forEach(freeCombo => {
-          const full = { ...freeCombo };
+        freeCombos.forEach(fc => {
+          const full = { ...fc };
           if (colDim && colVal !== null) full[colDim] = colVal;
           if (rowDim && rowVal !== null) full[rowDim] = rowVal;
           ALL_DIMS.forEach(({ id }) => { if (full[id] === undefined) full[id] = selValues[id][0]; });
@@ -350,6 +415,22 @@ export default function HCCExplorer({ data }) {
         allModels={allModels}
       />
 
+      {/* ── Cross-language diff warning banner ── */}
+      {crossLanguageWarning && (
+        <div style={{
+          background: "#fffbeb", borderBottom: "1px solid #fde68a",
+          padding: "6px 32px", fontSize: 12, color: "#92400e",
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <span>⚠</span>
+          <span>
+            <strong>Cross-language comparison detected.</strong> Different Words % will be
+            inflated because English and Spanish responses share almost no vocabulary.
+            Diff scores are most meaningful when comparing same-language responses.
+          </span>
+        </div>
+      )}
+
       {/* ── Keyword input bar ── */}
       {showKeywords && (
         <div style={{
@@ -375,7 +456,7 @@ export default function HCCExplorer({ data }) {
       {/* ── Body ── */}
       <div style={{
         display: "flex",
-        height: `calc(100vh - ${NAV_HEIGHT}px - ${showKeywords ? 56 : 0}px)`,
+        height: `calc(100vh - ${NAV_HEIGHT}px - ${crossLanguageWarning ? 37 : 0}px - ${showKeywords ? 56 : 0}px)`,
       }}>
 
         {/* ── Sidebar ── */}
@@ -503,44 +584,39 @@ export default function HCCExplorer({ data }) {
               )}
 
               {effectiveCols.map(colVal => {
-                const cellCards = freeCombos.map(freeCombo => {
-                  const full = { ...freeCombo };
+                const cellCards = freeCombos.map(fc => {
+                  const full = { ...fc };
                   if (colDim && colVal !== null) full[colDim] = colVal;
                   if (rowDim && rowVal !== null) full[rowDim] = rowVal;
                   ALL_DIMS.forEach(({ id }) => {
                     if (full[id] === undefined) full[id] = selValues[id][0];
                   });
                   full.response = getResponse(full);
+                  // FIX: stable key — not array index
+                  full._key = [full.model, full.language, full.therapy, full.repetition].join("|");
                   return full;
                 });
 
-                const colPeers = getPeerResponses(colVal, rowVal);
-
                 return (
                   <div key={String(colVal)} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {cellCards.map((card, k) => {
-                      const allPeers = [
-                        ...colPeers,
-                        ...cellCards.filter((_, ki) => ki !== k).map(c => c.response).filter(Boolean),
-                      ];
-                      const dWords = showDiff ? computeUniqueWords(card.response, allPeers) : null;
-                      const dScore = showDiff ? diffScore(card.response, allPeers) : undefined;
-                      const tTerms = (showDiff && showTopTerms)
-                        ? topUniqueTerms(card.response, allPeers, 6) : null;
+                    {cellCards.map(card => {
                       const mc = modelColors[card.model] || MODEL_META[card.model]?.color || "#111";
+                      // FIX: pull precomputed diff results from memoized map
+                      const diff = diffMap.get(card._key);
 
                       return (
-                        <ResponseCard key={k}
-                          model={card.model}       language={card.language}
-                          therapy={card.therapy}   repetition={card.repetition}
+                        <ResponseCard key={card._key}
+                          model={card.model}         language={card.language}
+                          therapy={card.therapy}     repetition={card.repetition}
                           response={card.response}
-                          showWordCount={showWordCount}  maxWordCount={maxWordCount}
-                          showDiff={showDiff}            diffWords={dWords}
-                          diffScoreValue={dScore}        showTopTerms={showTopTerms}
-                          topTerms={tTerms}              keywords={keywords}
-                          highlightStyle={highlightStyle} partialMatch={partialMatch}
-                          fontSize={fontSize}            fontFamily={fontFamily}
+                          showWordCount={showWordCount}    maxWordCount={maxWordCount}
+                          showDiff={showDiff}              diffWords={diff?.dWords ?? null}
+                          diffScoreValue={diff?.dScore}    showTopTerms={showTopTerms}
+                          topTerms={diff?.tTerms ?? null}  keywords={keywords}
+                          highlightStyle={highlightStyle}  partialMatch={partialMatch}
+                          fontSize={fontSize}              fontFamily={fontFamily}
                           modelColor={mc}
+                          crossLanguageWarning={crossLanguageWarning}
                         />
                       );
                     })}
