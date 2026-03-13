@@ -7,24 +7,137 @@ import {
   dimColor, dimLabel,
 } from "../config/constants";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Text utilities
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STOP_WORDS = new Set([
+  "a","an","the","and","or","but","in","on","at","to","for","of","with",
+  "is","are","was","were","be","been","being","have","has","had","do","does",
+  "did","will","would","could","should","may","might","can","it","its","this",
+  "that","these","those","they","them","their","he","she","we","you","i",
+  "as","by","from","into","through","during","before","after","above","below",
+  "if","then","so","such","than","too","very","just","also","not","no","more",
+  "which","who","what","when","where","how","all","each","both","few","some",
+  "any","most","other","only","same","once","here","there","its","our","your",
+]);
+
+function tokenize(text) {
+  return (text || "").toLowerCase().match(/\b[a-z]{3,}\b/g) || [];
+}
+
+function wordSet(text) {
+  return new Set(tokenize(text).filter(w => !STOP_WORDS.has(w)));
+}
+
+function wordCount(text) {
+  return (text || "").trim().split(/\s+/).filter(Boolean).length;
+}
+
+function computeUniqueWords(cardResponse, peerResponses) {
+  const mine   = wordSet(cardResponse);
+  const theirs = new Set(peerResponses.flatMap(r => [...wordSet(r)]));
+  return new Set([...mine].filter(w => !theirs.has(w)));
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sub-components
+// HighlightedText
+// ─────────────────────────────────────────────────────────────────────────────
+
+function HighlightedText({ text, highlightWords, diffColor, searchTerm }) {
+  const segments = useMemo(() => {
+    if (!text) return [];
+    return text.split(/(\s+)/).map(tok => {
+      const clean = tok.toLowerCase().replace(/[^a-z]/g, "");
+      // Search wins
+      if (searchTerm && clean && clean.includes(searchTerm)) {
+        return { text: tok, bg: "#FFD600", color: "#111", bold: true };
+      }
+      // Diff
+      if (highlightWords && clean.length >= 3 && highlightWords.has(clean)) {
+        return { text: tok, bg: diffColor + "35", color: diffColor, bold: true, outline: `1px solid ${diffColor}66` };
+      }
+      return { text: tok, bg: null };
+    });
+  }, [text, highlightWords, diffColor, searchTerm]);
+
+  return (
+    <span>
+      {segments.map((seg, i) =>
+        seg.bg ? (
+          <mark key={i} style={{
+            background: seg.bg, color: seg.color || "#111",
+            borderRadius: 2, padding: "0 1px",
+            outline: seg.outline || "none",
+            fontWeight: seg.bold ? 700 : 400,
+            fontStyle: "inherit",
+          }}>{seg.text}</mark>
+        ) : <span key={i}>{seg.text}</span>
+      )}
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WordCountBar
+// ─────────────────────────────────────────────────────────────────────────────
+
+function WordCountBar({ count, maxCount, color }) {
+  const pct = maxCount > 0 ? Math.round((count / maxCount) * 100) : 0;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8,
+      padding: "6px 14px 8px", borderTop: "1px solid #f1f1f1", background: "#fafafa" }}>
+      <div style={{ flex: 1, height: 4, background: "#e5e5e5", borderRadius: 2, overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: color,
+          borderRadius: 2, transition: "width .3s" }}/>
+      </div>
+      <span style={{ fontSize: 10, color: "#8d8d8d", letterSpacing: 0.3, whiteSpace: "nowrap" }}>
+        {count} words
+      </span>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UniqueBadges
+// ─────────────────────────────────────────────────────────────────────────────
+
+function UniqueBadges({ uniqueWords, color }) {
+  if (!uniqueWords || uniqueWords.size === 0) return null;
+  const words = [...uniqueWords].slice(0, 14);
+  return (
+    <div style={{ padding: "8px 14px 10px", borderTop: "1px solid #f1f1f1", background: "#fafafa" }}>
+      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1.2,
+        textTransform: "uppercase", color: "#aaa", marginBottom: 5 }}>
+        Unique terms
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+        {words.map(w => (
+          <span key={w} style={{
+            fontSize: 10, padding: "2px 7px", borderRadius: 2,
+            background: color + "18", color, fontWeight: 600, letterSpacing: 0.2,
+          }}>{w}</span>
+        ))}
+        {uniqueWords.size > 14 && (
+          <span style={{ fontSize: 10, color: "#aaa", alignSelf: "center" }}>
+            +{uniqueWords.size - 14} more
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Checkbox
 // ─────────────────────────────────────────────────────────────────────────────
 
 function Checkbox({ checked, onChange, label }) {
   return (
-    <label style={{
-      display: "flex", alignItems: "center", gap: 12,
+    <label style={{ display: "flex", alignItems: "center", gap: 12,
       padding: "6px 0", cursor: "pointer",
-      fontFamily: "'Helvetica Neue', Arial, sans-serif",
-    }}>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={onChange}
-        style={{ display: "none" }}
-      />
+      fontFamily: "'Helvetica Neue', Arial, sans-serif" }}>
+      <input type="checkbox" checked={checked} onChange={onChange} style={{ display: "none" }} />
       <span style={{
         width: 18, height: 18, borderRadius: 2, flexShrink: 0,
         border: `1.5px solid ${checked ? "#111" : "#bbb"}`,
@@ -46,23 +159,22 @@ function Checkbox({ checked, onChange, label }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AccordionSection
+// ─────────────────────────────────────────────────────────────────────────────
+
 function AccordionSection({ title, children, defaultOpen = true }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={{ borderTop: "1px solid #e5e5e5" }}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{
-          width: "100%", display: "flex", alignItems: "center",
-          justifyContent: "space-between", padding: "16px 0",
-          background: "none", border: "none", cursor: "pointer",
-          fontFamily: "'Helvetica Neue', Arial, sans-serif",
-        }}
-      >
-        <span style={{
-          fontSize: 15, fontWeight: 700, color: "#111", letterSpacing: 0.2,
-          padding: "2px 0",
-        }}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        width: "100%", display: "flex", alignItems: "center",
+        justifyContent: "space-between", padding: "16px 0",
+        background: "none", border: "none", cursor: "pointer",
+        fontFamily: "'Helvetica Neue', Arial, sans-serif",
+      }}>
+        <span style={{ fontSize: 15, fontWeight: 700, color: "#111",
+          letterSpacing: 0.2, padding: "2px 0" }}>
           {title}
         </span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -76,6 +188,10 @@ function AccordionSection({ title, children, defaultOpen = true }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SortByDropdown
+// ─────────────────────────────────────────────────────────────────────────────
+
 function SortByDropdown({ colDim, rowDim, onChange }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -87,7 +203,6 @@ function SortByDropdown({ colDim, rowDim, onChange }) {
   }, []);
 
   const options = [null, ...ALL_DIMS.map(d => d.id)];
-
   function optLabel(dim) {
     if (!dim) return "None";
     return ALL_DIMS.find(d => d.id === dim)?.label || dim;
@@ -100,18 +215,15 @@ function SortByDropdown({ colDim, rowDim, onChange }) {
           const active   = activeDim === opt;
           const disabled = opt !== null && opt === blockedDim;
           return (
-            <button key={String(opt)} disabled={disabled} onClick={() => onPick(opt)}
-              style={{
-                padding: "6px 14px", borderRadius: 2,
-                border: `1.5px solid ${active ? "#111" : "#e5e5e5"}`,
-                background: active ? "#111" : "#fff",
-                color: active ? "#fff" : disabled ? "#ccc" : "#111",
-                fontSize: 13, fontWeight: active ? 600 : 400,
-                cursor: disabled ? "not-allowed" : "pointer",
-                fontFamily: "'Helvetica Neue', Arial, sans-serif", letterSpacing: 0.2,
-              }}>
-              {optLabel(opt)}
-            </button>
+            <button key={String(opt)} disabled={disabled} onClick={() => onPick(opt)} style={{
+              padding: "6px 14px", borderRadius: 2,
+              border: `1.5px solid ${active ? "#111" : "#e5e5e5"}`,
+              background: active ? "#111" : "#fff",
+              color: active ? "#fff" : disabled ? "#ccc" : "#111",
+              fontSize: 13, fontWeight: active ? 600 : 400,
+              cursor: disabled ? "not-allowed" : "pointer",
+              fontFamily: "'Helvetica Neue', Arial, sans-serif", letterSpacing: 0.2,
+            }}>{optLabel(opt)}</button>
           );
         })}
       </div>
@@ -122,9 +234,9 @@ function SortByDropdown({ colDim, rowDim, onChange }) {
     <div ref={ref} style={{ position: "relative" }}>
       <button onClick={() => setOpen(o => !o)} style={{
         display: "inline-flex", alignItems: "center", gap: 6,
-        padding: "0", background: "none", border: "none",
-        fontSize: 14, fontWeight: 500, color: "#111",
-        cursor: "pointer", fontFamily: "'Helvetica Neue', Arial, sans-serif", letterSpacing: 0.2,
+        padding: 0, background: "none", border: "none",
+        fontSize: 14, fontWeight: 500, color: "#111", cursor: "pointer",
+        fontFamily: "'Helvetica Neue', Arial, sans-serif", letterSpacing: 0.2,
       }}>
         Sort By
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="3"
@@ -141,12 +253,12 @@ function SortByDropdown({ colDim, rowDim, onChange }) {
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5,
               textTransform: "uppercase", color: "#8d8d8d", marginBottom: 10 }}>Columns</div>
-            <OptionButtons activeDim={colDim} blockedDim={rowDim} onPick={val => onChange(val, rowDim)}/>
+            <OptionButtons activeDim={colDim} blockedDim={rowDim} onPick={v => onChange(v, rowDim)}/>
           </div>
           <div style={{ borderTop: "1px solid #e5e5e5", paddingTop: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5,
               textTransform: "uppercase", color: "#8d8d8d", marginBottom: 10 }}>Rows</div>
-            <OptionButtons activeDim={rowDim} blockedDim={colDim} onPick={val => onChange(colDim, val)}/>
+            <OptionButtons activeDim={rowDim} blockedDim={colDim} onPick={v => onChange(colDim, v)}/>
           </div>
           <div style={{ borderTop: "1px solid #e5e5e5", marginTop: 14, paddingTop: 10,
             fontSize: 12, color: "#8d8d8d", letterSpacing: 0.2 }}>
@@ -158,21 +270,53 @@ function SortByDropdown({ colDim, rowDim, onChange }) {
   );
 }
 
-function ResponseCard({ model, language, therapy, repetition, response }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// TogglePill
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TogglePill({ active, onClick, children, activeColor = "#111" }) {
+  return (
+    <button onClick={onClick} style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      padding: "3px 11px", borderRadius: 20,
+      border: `1.5px solid ${active ? activeColor : "#ddd"}`,
+      background: active ? activeColor : "#fff",
+      color: active ? "#fff" : "#666",
+      fontSize: 12, fontWeight: 600, cursor: "pointer",
+      fontFamily: "'Helvetica Neue', Arial, sans-serif",
+      letterSpacing: 0.3, transition: "all .14s",
+    }}>
+      {children}
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ResponseCard
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ResponseCard({
+  model, language, therapy, repetition, response,
+  showWordCount, maxWordCount,
+  showDiff, uniqueWords,
+  showUniqueBadges,
+  searchTerm,
+}) {
   const mc = MODEL_META[model]?.color || "#111";
   const ml = MODEL_META[model]?.label || model;
   const lc = LANG_COLOR[language]     || "#111";
   const tc = THERAPY_COLOR[therapy]   || "#111";
+  const wc = wordCount(response);
+
   return (
     <div style={{
       background: "#fff", border: "1px solid #e5e5e5", borderRadius: 4,
       overflow: "hidden", display: "flex", flexDirection: "column",
       boxShadow: "0 1px 4px rgba(0,0,0,.06)", minWidth: 0,
     }}>
-      <div style={{
-        display: "flex", alignItems: "center", gap: 8, padding: "8px 14px",
-        borderBottom: "1px solid #f1f1f1", background: "#fafafa", flexWrap: "wrap",
-      }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px",
+        borderBottom: "1px solid #f1f1f1", background: "#fafafa", flexWrap: "wrap" }}>
         <span style={{ width: 3, height: 16, borderRadius: 1, background: mc, flexShrink: 0 }}/>
         <span style={{ fontSize: 11, fontWeight: 700, color: mc, letterSpacing: 0.3 }}>{ml}</span>
         <span style={{ color: "#ddd" }}>·</span>
@@ -184,17 +328,34 @@ function ResponseCard({ model, language, therapy, repetition, response }) {
           Rep {repetition}
         </span>
       </div>
-      <div style={{
-        padding: "14px 16px", fontSize: 13.5, lineHeight: 1.85, color: "#333",
+
+      {/* Body */}
+      <div style={{ padding: "14px 16px", fontSize: 13.5, lineHeight: 1.85, color: "#333",
         whiteSpace: "pre-wrap", overflowY: "auto", maxHeight: 500,
-        fontFamily: "'Georgia', serif", flex: 1,
-      }}>
-        {response || <span style={{ color: "#bbb", fontStyle: "italic" }}>No data for this combination</span>}
+        fontFamily: "'Georgia', serif", flex: 1 }}>
+        {response
+          ? <HighlightedText
+              text={response}
+              highlightWords={showDiff ? uniqueWords : null}
+              diffColor={mc}
+              searchTerm={searchTerm || ""}
+            />
+          : <span style={{ color: "#bbb", fontStyle: "italic" }}>No data for this combination</span>
+        }
       </div>
+
+      {/* Unique badges */}
+      {showDiff && showUniqueBadges && (
+        <UniqueBadges uniqueWords={uniqueWords} color={mc} />
+      )}
+
+      {/* Word count bar */}
+      {showWordCount && response && (
+        <WordCountBar count={wc} maxCount={maxWordCount} color={mc} />
+      )}
     </div>
   );
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main component
@@ -205,16 +366,13 @@ export default function HCCExplorer({ data }) {
   const questions = useMemo(() => {
     const seen = new Map();
     data.forEach(r => { if (!seen.has(r.q_num)) seen.set(r.q_num, r.topic); });
-    return [...seen.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
+    return [...seen.entries()].sort(([a],[b]) => a.localeCompare(b))
       .map(([q_num, topic]) => ({ q_num, topic }));
   }, [data]);
 
-  const allModels = useMemo(
-    () => [...new Set(data.map(r => r.model))].sort(),
-    [data]
-  );
+  const allModels = useMemo(() => [...new Set(data.map(r => r.model))].sort(), [data]);
 
+  // Filter state
   const [selQ,         setSelQ]         = useState("Q1");
   const [selTherapies, setSelTherapies] = useState(["General"]);
   const [selLangs,     setSelLangs]     = useState(["English", "Spanish"]);
@@ -223,6 +381,13 @@ export default function HCCExplorer({ data }) {
   const [showFilters,  setShowFilters]  = useState(true);
   const [colDim,       setColDim]       = useState("model");
   const [rowDim,       setRowDim]       = useState("language");
+
+  // Feature toggles
+  const [showWordCount,    setShowWordCount]    = useState(false);
+  const [showDiff,         setShowDiff]         = useState(false);
+  const [showUniqueBadges, setShowUniqueBadges] = useState(false);
+  const [searchInput,      setSearchInput]      = useState("");
+  const [searchTerm,       setSearchTerm]       = useState("");
 
   useEffect(() => {
     if (data.length === 0) return;
@@ -260,6 +425,16 @@ export default function HCCExplorer({ data }) {
     setRowDim(newRow);
   }
 
+  function handleSearch(e) {
+    e.preventDefault();
+    setSearchTerm(searchInput.trim().toLowerCase());
+  }
+
+  function clearSearch() {
+    setSearchTerm("");
+    setSearchInput("");
+  }
+
   const selValues = {
     therapy:    selTherapies,
     language:   selLangs,
@@ -278,10 +453,10 @@ export default function HCCExplorer({ data }) {
 
   function getResponse({ therapy, language, model, repetition }) {
     return data.find(r =>
-      r.q_num      === selQ       &&
-      r.therapy    === therapy    &&
-      r.language   === language   &&
-      r.model      === model      &&
+      r.q_num      === selQ    &&
+      r.therapy    === therapy &&
+      r.language   === language &&
+      r.model      === model   &&
       r.repetition === repetition
     )?.response ?? null;
   }
@@ -304,6 +479,45 @@ export default function HCCExplorer({ data }) {
   const rowLabelWidth  = showRowLabels ? 120 : 0;
   const NAV_HEIGHT     = 96;
 
+  // Max word count across all visible cards (for bar scaling)
+  const maxWordCount = useMemo(() => {
+    let max = 1;
+    effectiveRows.forEach(rowVal => {
+      effectiveCols.forEach(colVal => {
+        freeCombos.forEach(freeCombo => {
+          const full = { ...freeCombo };
+          if (colDim && colVal !== null) full[colDim] = colVal;
+          if (rowDim && rowVal !== null) full[rowDim] = rowVal;
+          ALL_DIMS.forEach(({ id }) => { if (full[id] === undefined) full[id] = selValues[id][0]; });
+          const wc = wordCount(getResponse(full));
+          if (wc > max) max = wc;
+        });
+      });
+    });
+    return max;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selTherapies, selLangs, selModels, selReps, colDim, rowDim, selQ]);
+
+  // For diff: all responses in same col (same colVal) grouped by rowVal
+  function getPeerResponses(colVal, rowVal) {
+    const peers = [];
+    effectiveRows.forEach(rv => {
+      if (String(rv) === String(rowVal)) return;
+      freeCombos.forEach(freeCombo => {
+        const full = { ...freeCombo };
+        if (colDim && colVal !== null) full[colDim] = colVal;
+        if (rowDim && rv !== null) full[rowDim] = rv;
+        ALL_DIMS.forEach(({ id }) => { if (full[id] === undefined) full[id] = selValues[id][0]; });
+        const resp = getResponse(full);
+        if (resp) peers.push(resp);
+      });
+    });
+    return peers;
+  }
+
+  // Extra info bars height
+  const extraBars = (searchTerm ? 37 : 0) + (showDiff ? 37 : 0);
+
   return (
     <div style={{ fontFamily: "'Helvetica Neue', Arial, sans-serif", background: "#f5f5f5", minHeight: "100vh", color: "#111" }}>
 
@@ -323,11 +537,7 @@ export default function HCCExplorer({ data }) {
               textDecoration: "none", letterSpacing: 0.2,
               borderBottom: link === "HCC Responses" ? "2px solid #111" : "2px solid transparent",
               paddingBottom: 2,
-            }}
-              onClick={e => e.preventDefault()}
-            >
-              {link}
-            </a>
+            }} onClick={e => e.preventDefault()}>{link}</a>
           ))}
         </div>
         <span style={{ fontSize: 13, color: "#8d8d8d" }}>HCC Patient Education Study</span>
@@ -336,19 +546,75 @@ export default function HCCExplorer({ data }) {
       {/* ── Explorer bar ── */}
       <div style={{
         background: "#fff", borderBottom: "1px solid #e5e5e5",
-        padding: "0 32px", display: "flex", alignItems: "center", height: 48,
-        position: "sticky", top: 48, zIndex: 199,
+        padding: "0 16px 0 32px", display: "flex", alignItems: "center", height: 48,
+        position: "sticky", top: 48, zIndex: 199, gap: 12,
       }}>
-        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#8d8d8d" }}>
+        {/* Breadcrumb */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6,
+          fontSize: 13, color: "#8d8d8d", flexShrink: 0 }}>
           <span style={{ color: "#111", fontWeight: 600 }}>HCC Responses</span>
-          <span>/</span>
-          <span>{selQ}</span>
-          <span>/</span>
-          <span>{currentTopic}</span>
+          <span>/</span><span>{selQ}</span>
+          <span>/</span><span>{currentTopic}</span>
           <span>/</span>
           <span style={{ color: "#111", fontWeight: 500 }}>{therapyLabel}</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+
+        {/* Divider */}
+        <div style={{ width: 1, height: 20, background: "#e5e5e5", flexShrink: 0 }}/>
+
+        {/* Feature toggles */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, flexWrap: "nowrap" }}>
+
+          <TogglePill active={showDiff} onClick={() => setShowDiff(d => !d)} activeColor="#7c3aed">
+            ◈ Diff
+          </TogglePill>
+
+          {showDiff && (
+            <TogglePill active={showUniqueBadges} onClick={() => setShowUniqueBadges(b => !b)} activeColor="#7c3aed">
+              + Badges
+            </TogglePill>
+          )}
+
+          <TogglePill active={showWordCount} onClick={() => setShowWordCount(w => !w)} activeColor="#0284c7">
+            ▬ Length
+          </TogglePill>
+
+          {/* Search */}
+          <form onSubmit={handleSearch} style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: 2 }}>
+            <div style={{
+              display: "flex", alignItems: "center",
+              border: `1.5px solid ${searchTerm ? "#f59e0b" : "#ddd"}`,
+              borderRadius: 20, overflow: "hidden", background: "#fff",
+            }}>
+              <span style={{ padding: "0 8px 0 12px", color: "#aaa", fontSize: 13 }}>🔍</span>
+              <input
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+                placeholder="Highlight keyword…"
+                style={{
+                  border: "none", outline: "none", padding: "4px 4px 4px 0",
+                  fontSize: 12, fontFamily: "'Helvetica Neue', Arial, sans-serif",
+                  width: 150, background: "transparent", color: "#111",
+                }}
+              />
+              {(searchInput || searchTerm) && (
+                <button type="button" onClick={clearSearch} style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  padding: "0 10px", color: "#bbb", fontSize: 16, lineHeight: 1,
+                }}>×</button>
+              )}
+            </div>
+            <button type="submit" style={{
+              padding: "4px 12px", borderRadius: 20,
+              border: "1.5px solid #ddd", background: "#fff",
+              fontSize: 12, cursor: "pointer", color: "#111",
+              fontFamily: "'Helvetica Neue', Arial, sans-serif", fontWeight: 500,
+            }}>Go</button>
+          </form>
+        </div>
+
+        {/* Right controls */}
+        <div style={{ display: "flex", alignItems: "center", gap: 18, flexShrink: 0 }}>
           <button onClick={() => setShowFilters(f => !f)} style={{
             display: "inline-flex", alignItems: "center", gap: 6,
             background: "none", border: "none", cursor: "pointer",
@@ -366,8 +632,50 @@ export default function HCCExplorer({ data }) {
         </div>
       </div>
 
+      {/* ── Search hint bar ── */}
+      {searchTerm && (
+        <div style={{
+          background: "#fffbeb", borderBottom: "1px solid #fde68a",
+          padding: "0 32px", height: 37, display: "flex", alignItems: "center", gap: 8,
+          fontSize: 12, color: "#92400e",
+        }}>
+          <span style={{ fontWeight: 700 }}>Highlighting:</span>
+          <span style={{ background: "#FFD600", color: "#111", padding: "1px 8px",
+            borderRadius: 2, fontWeight: 700 }}>{searchTerm}</span>
+          <span>in all visible cards</span>
+          <button onClick={clearSearch} style={{ marginLeft: "auto", background: "none",
+            border: "none", cursor: "pointer", fontSize: 12, color: "#92400e", fontWeight: 600 }}>
+            Clear ×
+          </button>
+        </div>
+      )}
+
+      {/* ── Diff legend bar ── */}
+      {showDiff && (
+        <div style={{
+          background: "#faf5ff", borderBottom: "1px solid #e9d5ff",
+          padding: "0 32px", height: 37, display: "flex", alignItems: "center",
+          gap: 16, fontSize: 12, color: "#6b21a8", flexWrap: "wrap",
+        }}>
+          <span style={{ fontWeight: 700 }}>◈ Diff on</span>
+          <span>— highlighted words are unique to each card vs its column peers</span>
+          {allModels.map(m => (
+            <span key={m} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{
+                width: 10, height: 10, borderRadius: 2, display: "inline-block",
+                background: (MODEL_META[m]?.color || "#111") + "35",
+                border: `1px solid ${MODEL_META[m]?.color || "#111"}`,
+              }}/>
+              <span style={{ color: MODEL_META[m]?.color || "#111", fontWeight: 600 }}>
+                {MODEL_META[m]?.label || m}
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* ── Body ── */}
-      <div style={{ display: "flex", height: `calc(100vh - ${NAV_HEIGHT}px)` }}>
+      <div style={{ display: "flex", height: `calc(100vh - ${NAV_HEIGHT + extraBars}px)` }}>
 
         {/* ── Sidebar ── */}
         {showFilters && (
@@ -391,8 +699,7 @@ export default function HCCExplorer({ data }) {
                     fontFamily: "'Helvetica Neue', Arial, sans-serif",
                     borderBottom: active ? "2px solid #111" : "2px solid transparent",
                     marginBottom: 2, letterSpacing: 0.1,
-                    textDecoration: active ? "underline" : "none",
-                    textUnderlineOffset: 3,
+                    textDecoration: active ? "underline" : "none", textUnderlineOffset: 3,
                   }}>
                     <span style={{ fontSize: 11, color: "#8d8d8d", marginRight: 6 }}>{q_num}</span>
                     {topic}
@@ -403,41 +710,27 @@ export default function HCCExplorer({ data }) {
 
             <AccordionSection title="Therapy">
               {availTherapies.map(val => (
-                <Checkbox key={val}
-                  checked={selTherapies.includes(val)}
-                  onChange={() => toggle(val, setSelTherapies)}
-                  label={val}
-                />
+                <Checkbox key={val} checked={selTherapies.includes(val)}
+                  onChange={() => toggle(val, setSelTherapies)} label={val} />
               ))}
             </AccordionSection>
-
             <AccordionSection title="Language">
               {ALL_LANGUAGES.map(val => (
-                <Checkbox key={val}
-                  checked={selLangs.includes(val)}
-                  onChange={() => toggle(val, setSelLangs)}
-                  label={val}
-                />
+                <Checkbox key={val} checked={selLangs.includes(val)}
+                  onChange={() => toggle(val, setSelLangs)} label={val} />
               ))}
             </AccordionSection>
-
             <AccordionSection title="Model">
               {allModels.map(val => (
-                <Checkbox key={val}
-                  checked={selModels.includes(val)}
+                <Checkbox key={val} checked={selModels.includes(val)}
                   onChange={() => toggle(val, setSelModels)}
-                  label={MODEL_META[val]?.label ?? val}
-                />
+                  label={MODEL_META[val]?.label ?? val} />
               ))}
             </AccordionSection>
-
             <AccordionSection title="Repetition">
               {ALL_REPETITIONS.map(val => (
-                <Checkbox key={val}
-                  checked={selReps.includes(val)}
-                  onChange={() => toggle(val, setSelReps)}
-                  label={`Rep ${val}`}
-                />
+                <Checkbox key={val} checked={selReps.includes(val)}
+                  onChange={() => toggle(val, setSelReps)} label={`Rep ${val}`} />
               ))}
             </AccordionSection>
           </div>
@@ -452,11 +745,9 @@ export default function HCCExplorer({ data }) {
               padding: "12px 18px", marginBottom: 24, borderRadius: 2,
             }}>
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5,
-                textTransform: "uppercase", color: "#8d8d8d", marginBottom: 4 }}>
-                Prompt
-              </div>
+                textTransform: "uppercase", color: "#8d8d8d", marginBottom: 4 }}>Prompt</div>
               <div style={{ fontSize: 14, color: "#333", fontStyle: "italic", lineHeight: 1.6 }}>
-                {promptText}
+                <HighlightedText text={promptText} searchTerm={searchTerm} />
               </div>
             </div>
           )}
@@ -496,31 +787,51 @@ export default function HCCExplorer({ data }) {
                   </span>
                 </div>
               )}
+
               {effectiveCols.map(colVal => {
-                const cards = freeCombos.map(freeCombo => {
+                const cellCards = freeCombos.map(freeCombo => {
                   const full = { ...freeCombo };
                   if (colDim && colVal !== null) full[colDim] = colVal;
                   if (rowDim && rowVal !== null) full[rowDim] = rowVal;
                   ALL_DIMS.forEach(({ id }) => {
                     if (full[id] === undefined) full[id] = selValues[id][0];
                   });
-                  return { ...full, response: getResponse(full) };
+                  full.response = getResponse(full);
+                  return full;
                 });
+
+                // Peers = other rows in same column + other cards within this cell
+                const colPeerResponses = getPeerResponses(colVal, rowVal);
+
                 return (
                   <div key={String(colVal)} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    {cards.map((card, k) => (
-                      <ResponseCard key={k}
-                        model={card.model} language={card.language}
-                        therapy={card.therapy} repetition={card.repetition}
-                        response={card.response}
-                      />
-                    ))}
+                    {cellCards.map((card, k) => {
+                      const uniqueWords = showDiff
+                        ? computeUniqueWords(card.response, [
+                            ...colPeerResponses,
+                            ...cellCards.filter((_, ki) => ki !== k).map(c => c.response),
+                          ])
+                        : null;
+
+                      return (
+                        <ResponseCard key={k}
+                          model={card.model} language={card.language}
+                          therapy={card.therapy} repetition={card.repetition}
+                          response={card.response}
+                          showWordCount={showWordCount}
+                          maxWordCount={maxWordCount}
+                          showDiff={showDiff}
+                          uniqueWords={uniqueWords}
+                          showUniqueBadges={showUniqueBadges}
+                          searchTerm={searchTerm}
+                        />
+                      );
+                    })}
                   </div>
                 );
               })}
             </div>
           ))}
-
         </div>
       </div>
     </div>
