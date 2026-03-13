@@ -1,8 +1,10 @@
 // src/components/HCCExplorer.jsx
-// Redesigned: multi-keyword chips, unicode tokenizer, diff score, word count in header,
-// analysis toolbar, suggested keywords, Spanish support, highlight style toggle.
+// Changes: breadcrumb gets Hide Filters + Sort By | toolbar cleaned up |
+// Diff → Different Words | Badges → Top Terms | single metric under header |
+// keyword match count per card | stemming for diff | A▲ A▼ font buttons |
+// model color swatches | no emojis in toolbar
 
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   ALL_DIMS, ALL_LANGUAGES, ALL_REPETITIONS,
   MODEL_META, THERAPY_COLOR, LANG_COLOR,
@@ -24,7 +26,7 @@ const STOP_WORDS = new Set([
   "any","most","other","only","same","once","here","there","our","your","el",
   "la","los","las","un","una","unos","unas","del","al","en","de","que","es",
   "por","con","para","como","pero","sin","sobre","entre","ya","se","su","sus",
-  "le","les","me","te","nos","les","más","así","todo","esta","este","estos",
+  "le","les","me","te","nos","más","así","todo","esta","este","estos",
 ]);
 
 const CHIP_COLORS = [
@@ -33,44 +35,68 @@ const CHIP_COLORS = [
 ];
 
 const FONT_OPTIONS = [
-  { label: "Georgia", value: "'Georgia', serif" },
+  { label: "Georgia",   value: "'Georgia', serif" },
   { label: "Helvetica", value: "'Helvetica Neue', Arial, sans-serif" },
-  { label: "Mono", value: "'Courier New', monospace" },
-  { label: "System", value: "system-ui, sans-serif" },
+  { label: "Mono",      value: "'Courier New', monospace" },
+  { label: "System",    value: "system-ui, sans-serif" },
+];
+
+// Preset swatches for model color customization
+const COLOR_SWATCHES = [
+  "#7c3aed","#2563eb","#059669","#dc2626","#d97706",
+  "#0891b2","#db2777","#65a30d","#111111","#6b7280",
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Text utilities — Unicode-safe, supports Spanish
+// Text utilities — Unicode-safe, Spanish support, stemming
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Unicode letter tokenizer — handles accented chars, ñ, etc.
 function tokenizeUnicode(text) {
   if (!text) return [];
-  // \p{L} matches any Unicode letter — works in modern browsers
   try {
     return [...text.matchAll(/\p{L}+/gu)].map(m => m[0].toLowerCase());
   } catch {
-    // Fallback for environments without Unicode property escapes
     return (text.toLowerCase().match(/[a-záéíóúüñàèìòùâêîôûäëïöü]+/g) || []);
   }
 }
 
+// Simple English + Spanish stemmer — strips common suffixes so
+// "tumor" and "tumors", "ablation" and "ablaciones" match as the same stem
+function stem(word) {
+  return word
+    .replace(/aciones$/, "")   // ablaciones → abla
+    .replace(/ación$/, "")     // ablación   → abla
+    .replace(/iones$/, "")     // lesiones   → les
+    .replace(/ión$/, "")       // lesión     → les
+    .replace(/ments?$/, "")    // treatments → treat
+    .replace(/ations?$/, "")   // ablations  → ablat
+    .replace(/ings?$/, "")     // imaging    → imag
+    .replace(/tion$/, "")      // ablation   → ablat
+    .replace(/ness$/, "")      // effectiveness → effective
+    .replace(/ical$/, "")      // clinical   → clin
+    .replace(/ical$/, "")
+    .replace(/ally$/, "")      // typically  → typic
+    .replace(/ically$/, "")
+    .replace(/ers?$/, "")      // tumors     → tumor / procedures → procedur
+    .replace(/s$/, "");        // tumors → tumor (last resort)
+}
+
 function wordSet(text) {
-  return new Set(tokenizeUnicode(text).filter(w => w.length >= 3 && !STOP_WORDS.has(w)));
+  const tokens = tokenizeUnicode(text).filter(w => w.length >= 3 && !STOP_WORDS.has(w));
+  // Use stemmed form as key so plural/singular collapse
+  return new Set(tokens.map(stem));
 }
 
 function wordCount(text) {
   return (text || "").trim().split(/\s+/).filter(Boolean).length;
 }
 
-// Compute unique words for this card vs peers
 function computeUniqueWords(cardText, peerTexts) {
   const mine   = wordSet(cardText);
   const theirs = new Set(peerTexts.flatMap(t => [...wordSet(t)]));
   return new Set([...mine].filter(w => !theirs.has(w)));
 }
 
-// Diff score: % of this card's vocab not in any peer
 function diffScore(cardText, peerTexts) {
   const mine = wordSet(cardText);
   if (mine.size === 0) return 0;
@@ -79,57 +105,59 @@ function diffScore(cardText, peerTexts) {
   return Math.round((unique / mine.size) * 100);
 }
 
-// Unique vocab % = unique words / total vocab
-function uniqueVocabPct(cardText, peerTexts) {
-  return diffScore(cardText, peerTexts);
-}
-
-// Top N meaningful unique terms by frequency
 function topUniqueTerms(cardText, peerTexts, n = 6) {
   const tokens = tokenizeUnicode(cardText).filter(w => w.length >= 4 && !STOP_WORDS.has(w));
   const theirs = new Set(peerTexts.flatMap(t => [...wordSet(t)]));
   const freq = {};
-  tokens.forEach(w => { if (!theirs.has(w)) freq[w] = (freq[w] || 0) + 1; });
-  return Object.entries(freq).sort((a,b) => b[1]-a[1]).slice(0, n).map(([w]) => w);
+  tokens.forEach(w => {
+    const s = stem(w);
+    if (!theirs.has(s)) freq[w] = (freq[w] || 0) + 1;
+  });
+  return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, n).map(([w]) => w);
 }
 
-// Suggested keywords: top words by frequency across all visible responses
 function suggestedKeywords(responses, n = 8) {
   const freq = {};
   responses.forEach(r => {
     tokenizeUnicode(r).filter(w => w.length >= 4 && !STOP_WORDS.has(w))
       .forEach(w => { freq[w] = (freq[w] || 0) + 1; });
   });
-  return Object.entries(freq).sort((a,b) => b[1]-a[1]).slice(0, n).map(([w]) => w);
+  return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, n).map(([w]) => w);
+}
+
+// Count keyword matches in a response
+function countKeywordMatches(text, keywords, partialMatch) {
+  if (!text || !keywords.length) return 0;
+  let count = 0;
+  const tokens = tokenizeUnicode(text);
+  tokens.forEach(tok => {
+    keywords.forEach(kw => {
+      const kwClean = kw.term.toLowerCase();
+      const matches = partialMatch ? tok.includes(kwClean) : tok === kwClean;
+      if (matches) count++;
+    });
+  });
+  return count;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HighlightedText — multi-keyword, underline or bg mode, partial/whole word
+// HighlightedText
 // ─────────────────────────────────────────────────────────────────────────────
 
 function HighlightedText({ text, keywords, highlightStyle, partialMatch, diffWords, diffColor }) {
   const segments = useMemo(() => {
     if (!text) return [];
-    // Split on word boundaries preserving whitespace & punctuation
-    const parts = text.split(/(\s+|[^\p{L}]+)/u);
-    return parts.map(tok => {
+    return text.split(/(\s+|[^\p{L}]+)/u).map(tok => {
       const clean = tok.toLowerCase().replace(/[^\p{L}]/gu, "");
       if (!clean) return { text: tok, type: "plain" };
-
-      // Check keywords (multi-keyword, each has own color)
       for (const kw of keywords) {
         const kwClean = kw.term.toLowerCase();
-        const matches = partialMatch
-          ? clean.includes(kwClean)
-          : clean === kwClean;
+        const matches = partialMatch ? clean.includes(kwClean) : clean === kwClean;
         if (matches) return { text: tok, type: "keyword", color: kw.color };
       }
-
-      // Diff highlight (only if enabled, use card model color)
-      if (diffWords && diffWords.has(clean) && clean.length >= 3) {
+      if (diffWords && diffWords.has(stem(clean)) && clean.length >= 3) {
         return { text: tok, type: "diff", color: diffColor };
       }
-
       return { text: tok, type: "plain" };
     });
   }, [text, keywords, highlightStyle, partialMatch, diffWords, diffColor]);
@@ -140,24 +168,11 @@ function HighlightedText({ text, keywords, highlightStyle, partialMatch, diffWor
         if (seg.type === "plain") return <span key={i}>{seg.text}</span>;
         if (seg.type === "keyword") {
           return highlightStyle === "underline"
-            ? <span key={i} style={{
-                borderBottom: `2px solid ${seg.color}`,
-                color: seg.color, fontWeight: 700,
-              }}>{seg.text}</span>
-            : <mark key={i} style={{
-                background: seg.color + "30", color: "#111",
-                borderRadius: 2, padding: "0 1px",
-                outline: `1.5px solid ${seg.color}55`, fontWeight: 600,
-                fontStyle: "inherit",
-              }}>{seg.text}</mark>;
+            ? <span key={i} style={{ borderBottom: `2px solid ${seg.color}`, color: seg.color, fontWeight: 700 }}>{seg.text}</span>
+            : <mark key={i} style={{ background: seg.color + "30", color: "#111", borderRadius: 2, padding: "0 1px", outline: `1.5px solid ${seg.color}55`, fontWeight: 600, fontStyle: "inherit" }}>{seg.text}</mark>;
         }
         if (seg.type === "diff") {
-          return <mark key={i} style={{
-            background: seg.color + "22", color: seg.color,
-            borderRadius: 2, padding: "0 1px",
-            outline: `1px solid ${seg.color}44`,
-            fontStyle: "inherit",
-          }}>{seg.text}</mark>;
+          return <mark key={i} style={{ background: seg.color + "22", color: seg.color, borderRadius: 2, padding: "0 1px", outline: `1px solid ${seg.color}44`, fontStyle: "inherit" }}>{seg.text}</mark>;
         }
         return <span key={i}>{seg.text}</span>;
       })}
@@ -166,107 +181,95 @@ function HighlightedText({ text, keywords, highlightStyle, partialMatch, diffWor
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// KeywordChips — multi-keyword input system
+// KeywordChips
 // ─────────────────────────────────────────────────────────────────────────────
 
 function KeywordChips({ keywords, onAdd, onRemove, onClearAll, suggestions }) {
   const [input, setInput] = useState("");
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showSug, setShowSug] = useState(false);
   const inputRef = useRef(null);
-  const nextColor = CHIP_COLORS[keywords.length % CHIP_COLORS.length];
 
   function addKeyword(term) {
     const t = term.trim().toLowerCase();
     if (!t || keywords.some(k => k.term === t)) return;
     onAdd({ term: t, color: CHIP_COLORS[keywords.length % CHIP_COLORS.length] });
     setInput("");
-    setShowSuggestions(false);
+    setShowSug(false);
   }
 
   function handleKey(e) {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      addKeyword(input);
-    }
-    if (e.key === "Backspace" && !input && keywords.length > 0) {
-      onRemove(keywords[keywords.length - 1].term);
-    }
+    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addKeyword(input); }
+    if (e.key === "Backspace" && !input && keywords.length > 0) onRemove(keywords[keywords.length - 1].term);
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{
-        display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4,
-        padding: "4px 8px", border: "1px solid #e5e5e5", borderRadius: 6,
-        background: "#fff", minHeight: 34,
-      }}>
-        {keywords.map(kw => (
-          <span key={kw.term} style={{
-            display: "inline-flex", alignItems: "center", gap: 4,
-            padding: "2px 8px", borderRadius: 12,
-            background: kw.color + "20", border: `1px solid ${kw.color}66`,
-            color: kw.color, fontSize: 12, fontWeight: 600,
-          }}>
-            {kw.term}
-            <button onClick={() => onRemove(kw.term)} style={{
-              background: "none", border: "none", cursor: "pointer",
-              color: kw.color, fontSize: 13, lineHeight: 1, padding: 0,
-              display: "flex", alignItems: "center",
-            }}>×</button>
-          </span>
-        ))}
-        <div style={{ position: "relative", flex: 1, minWidth: 80 }}>
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={e => { setInput(e.target.value); setShowSuggestions(true); }}
-            onKeyDown={handleKey}
-            onFocus={() => setShowSuggestions(true)}
-            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-            placeholder={keywords.length === 0 ? "Add keyword…" : "+"}
-            style={{
-              border: "none", outline: "none", fontSize: 12,
-              fontFamily: "'Helvetica Neue', Arial, sans-serif",
-              background: "transparent", color: "#111", width: "100%",
-              padding: "2px 4px",
-            }}
-          />
-          {showSuggestions && suggestions.length > 0 && (
-            <div style={{
-              position: "absolute", top: "100%", left: 0, zIndex: 400,
-              background: "#fff", border: "1px solid #e5e5e5", borderRadius: 4,
-              boxShadow: "0 4px 16px rgba(0,0,0,.1)", padding: "6px 0",
-              minWidth: 160, marginTop: 2,
-            }}>
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1.2,
-                textTransform: "uppercase", color: "#aaa", padding: "2px 10px 4px" }}>
-                Suggested
-              </div>
-              {suggestions
-                .filter(s => !keywords.some(k => k.term === s) && (!input || s.includes(input.toLowerCase())))
-                .slice(0, 7)
-                .map(s => (
-                  <button key={s} onMouseDown={() => addKeyword(s)} style={{
-                    display: "block", width: "100%", textAlign: "left",
-                    padding: "5px 10px", background: "none", border: "none",
-                    cursor: "pointer", fontSize: 12, color: "#333",
-                    fontFamily: "'Helvetica Neue', Arial, sans-serif",
-                  }}
-                    onMouseEnter={e => e.target.style.background = "#f5f5f5"}
-                    onMouseLeave={e => e.target.style.background = "none"}
-                  >{s}</button>
-                ))}
-            </div>
-          )}
-        </div>
-        {keywords.length > 0 && (
-          <button onClick={onClearAll} style={{
+    <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4,
+      padding: "4px 8px", border: "1px solid #e5e5e5", borderRadius: 6,
+      background: "#fff", minHeight: 34, flex: 1 }}>
+      {keywords.map(kw => (
+        <span key={kw.term} style={{
+          display: "inline-flex", alignItems: "center", gap: 4,
+          padding: "2px 8px", borderRadius: 12,
+          background: kw.color + "20", border: `1px solid ${kw.color}66`,
+          color: kw.color, fontSize: 12, fontWeight: 600,
+        }}>
+          {kw.term}
+          <button onClick={() => onRemove(kw.term)} style={{
             background: "none", border: "none", cursor: "pointer",
-            fontSize: 11, color: "#aaa", padding: "0 4px",
+            color: kw.color, fontSize: 13, lineHeight: 1, padding: 0,
+          }}>×</button>
+        </span>
+      ))}
+      <div style={{ position: "relative", flex: 1, minWidth: 80 }}>
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={e => { setInput(e.target.value); setShowSug(true); }}
+          onKeyDown={handleKey}
+          onFocus={() => setShowSug(true)}
+          onBlur={() => setTimeout(() => setShowSug(false), 150)}
+          placeholder={keywords.length === 0 ? "Add keyword…" : "+"}
+          style={{
+            border: "none", outline: "none", fontSize: 12,
             fontFamily: "'Helvetica Neue', Arial, sans-serif",
-          }}>Clear all</button>
+            background: "transparent", color: "#111", width: "100%", padding: "2px 4px",
+          }}
+        />
+        {showSug && suggestions.length > 0 && (
+          <div style={{
+            position: "absolute", top: "100%", left: 0, zIndex: 400,
+            background: "#fff", border: "1px solid #e5e5e5", borderRadius: 4,
+            boxShadow: "0 4px 16px rgba(0,0,0,.1)", padding: "6px 0",
+            minWidth: 160, marginTop: 2,
+          }}>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1.2,
+              textTransform: "uppercase", color: "#aaa", padding: "2px 10px 4px" }}>
+              Suggested
+            </div>
+            {suggestions
+              .filter(s => !keywords.some(k => k.term === s) && (!input || s.includes(input.toLowerCase())))
+              .slice(0, 7)
+              .map(s => (
+                <button key={s} onMouseDown={() => addKeyword(s)} style={{
+                  display: "block", width: "100%", textAlign: "left",
+                  padding: "5px 10px", background: "none", border: "none",
+                  cursor: "pointer", fontSize: 12, color: "#333",
+                  fontFamily: "'Helvetica Neue', Arial, sans-serif",
+                }}
+                  onMouseEnter={e => e.target.style.background = "#f5f5f5"}
+                  onMouseLeave={e => e.target.style.background = "none"}
+                >{s}</button>
+              ))}
+          </div>
         )}
       </div>
+      {keywords.length > 0 && (
+        <button onClick={onClearAll} style={{
+          background: "none", border: "none", cursor: "pointer",
+          fontSize: 11, color: "#aaa", padding: "0 4px",
+          fontFamily: "'Helvetica Neue', Arial, sans-serif",
+        }}>Clear all</button>
+      )}
     </div>
   );
 }
@@ -292,20 +295,16 @@ function WordCountBar({ count, maxCount, color }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TopUniqueTermsBadges
+// TopTermsBadges (renamed from TopUniqueTermsBadges)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TopUniqueTermsBadges({ terms, pct, color }) {
+function TopTermsBadges({ terms, color }) {
   if (!terms || terms.length === 0) return null;
   return (
     <div style={{ padding: "7px 14px 9px", borderTop: "1px solid #f1f1f1", background: "#fafafa" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
-        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1.2,
-          textTransform: "uppercase", color: "#aaa" }}>Top unique terms</span>
-        <span style={{ fontSize: 10, color, fontWeight: 700,
-          background: color + "15", padding: "1px 6px", borderRadius: 8 }}>
-          {pct}% unique vocab
-        </span>
+      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1.2,
+        textTransform: "uppercase", color: "#aaa", marginBottom: 5 }}>
+        Top Terms
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
         {terms.map(w => (
@@ -315,6 +314,46 @@ function TopUniqueTermsBadges({ terms, pct, color }) {
           }}>{w}</span>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ModelColorPicker — small swatch selector per model
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ModelColorPicker({ model, color, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    function h(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  return (
+    <div ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 5 }}>
+      <span style={{ fontSize: 11, color: "#555" }}>{MODEL_META[model]?.label || model}</span>
+      <button onClick={() => setOpen(o => !o)} style={{
+        width: 14, height: 14, borderRadius: 3, background: color,
+        border: "1.5px solid rgba(0,0,0,.15)", cursor: "pointer", padding: 0, flexShrink: 0,
+      }}/>
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 500,
+          background: "#fff", border: "1px solid #e5e5e5", borderRadius: 6,
+          boxShadow: "0 4px 16px rgba(0,0,0,.12)", padding: 8,
+          display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 4, width: 120,
+        }}>
+          {COLOR_SWATCHES.map(c => (
+            <button key={c} onClick={() => { onChange(model, c); setOpen(false); }} style={{
+              width: 18, height: 18, borderRadius: 3, background: c,
+              border: c === color ? "2px solid #111" : "1.5px solid rgba(0,0,0,.1)",
+              cursor: "pointer", padding: 0,
+            }}/>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -389,16 +428,18 @@ function SortByDropdown({ colDim, rowDim, onChange }) {
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, []);
+
   const options = [null, ...ALL_DIMS.map(d => d.id)];
   function optLabel(dim) {
     if (!dim) return "None";
     return ALL_DIMS.find(d => d.id === dim)?.label || dim;
   }
+
   function OptionButtons({ activeDim, blockedDim, onPick }) {
     return (
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
         {options.map(opt => {
-          const active = activeDim === opt;
+          const active   = activeDim === opt;
           const disabled = opt !== null && opt === blockedDim;
           return (
             <button key={String(opt)} disabled={disabled} onClick={() => onPick(opt)} style={{
@@ -415,6 +456,7 @@ function SortByDropdown({ colDim, rowDim, onChange }) {
       </div>
     );
   }
+
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <button onClick={() => setOpen(o => !o)} style={{
@@ -456,7 +498,7 @@ function SortByDropdown({ colDim, rowDim, onChange }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ToolbarButton — subtle toggle pill
+// ToolbarBtn — subtle toggle
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ToolbarBtn({ active, onClick, children, title }) {
@@ -469,28 +511,32 @@ function ToolbarBtn({ active, onClick, children, title }) {
       color: active ? "#111" : "#666",
       fontSize: 12, fontWeight: active ? 600 : 400, cursor: "pointer",
       fontFamily: "'Helvetica Neue', Arial, sans-serif",
-      letterSpacing: 0.2, transition: "all .12s",
+      letterSpacing: 0.2, transition: "all .12s", whiteSpace: "nowrap",
     }}>
       {children}
     </button>
   );
 }
 
+function Divider() {
+  return <div style={{ width: 1, height: 18, background: "#e5e5e5", margin: "0 6px", flexShrink: 0 }}/>;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// AnalysisToolbar
+// AnalysisToolbar — analysis tools only, no Hide Filters / Sort By
 // ─────────────────────────────────────────────────────────────────────────────
 
 function AnalysisToolbar({
   showDiff, setShowDiff,
   showWordCount, setShowWordCount,
   showKeywords, setShowKeywords,
-  showUniqueBadges, setShowUniqueBadges,
+  showTopTerms, setShowTopTerms,
   partialMatch, setPartialMatch,
   highlightStyle, setHighlightStyle,
   fontSize, setFontSize,
   fontFamily, setFontFamily,
-  showFilters, setShowFilters,
-  colDim, rowDim, onAxisChange,
+  modelColors, onModelColorChange,
+  allModels,
 }) {
   return (
     <div style={{
@@ -499,52 +545,65 @@ function AnalysisToolbar({
       height: 40, gap: 2, flexWrap: "nowrap", overflow: "hidden",
       position: "sticky", top: 96, zIndex: 198,
     }}>
-      {/* Groups separated by thin dividers */}
-      <ToolbarBtn active={showDiff} onClick={() => setShowDiff(d => !d)} title="Diff mode">
-        ◈ Diff
+
+      {/* Different Words (was Diff) */}
+      <ToolbarBtn active={showDiff} onClick={() => setShowDiff(d => !d)} title="Highlight words unique to this response vs peers">
+        Different Words
       </ToolbarBtn>
       {showDiff && (
-        <ToolbarBtn active={showUniqueBadges} onClick={() => setShowUniqueBadges(b => !b)} title="Show unique term badges">
-          Badges
-        </ToolbarBtn>
+        <>
+          <ToolbarBtn active={showTopTerms} onClick={() => setShowTopTerms(b => !b)} title="Show top distinct terms under each card">
+            Top Terms
+          </ToolbarBtn>
+        </>
       )}
 
-      <div style={{ width: 1, height: 18, background: "#e5e5e5", margin: "0 6px", flexShrink: 0 }}/>
+      <Divider/>
 
-      <ToolbarBtn active={showWordCount} onClick={() => setShowWordCount(w => !w)} title="Show word count">
+      {/* Word Count */}
+      <ToolbarBtn active={showWordCount} onClick={() => setShowWordCount(w => !w)} title="Show word count bar">
         Word Count
       </ToolbarBtn>
 
-      <div style={{ width: 1, height: 18, background: "#e5e5e5", margin: "0 6px", flexShrink: 0 }}/>
+      <Divider/>
 
+      {/* Keywords */}
       <ToolbarBtn active={showKeywords} onClick={() => setShowKeywords(k => !k)} title="Keyword highlighting">
-        🏷 Keywords
+        Keywords
       </ToolbarBtn>
-
-      {/* Match mode (only visible when relevant) */}
       {showKeywords && (
         <>
-          <div style={{ width: 1, height: 18, background: "#e5e5e5", margin: "0 4px", flexShrink: 0 }}/>
-          <ToolbarBtn active={!partialMatch} onClick={() => setPartialMatch(false)} title="Whole word match">
+          <Divider/>
+          <ToolbarBtn active={!partialMatch} onClick={() => setPartialMatch(false)} title="Match whole words only">
             Whole
           </ToolbarBtn>
-          <ToolbarBtn active={partialMatch} onClick={() => setPartialMatch(true)} title="Partial match">
+          <ToolbarBtn active={partialMatch} onClick={() => setPartialMatch(true)} title="Match partial words">
             Partial
           </ToolbarBtn>
         </>
       )}
 
-      <div style={{ width: 1, height: 18, background: "#e5e5e5", margin: "0 6px", flexShrink: 0 }}/>
+      <Divider/>
 
-      {/* Highlight style */}
+      {/* Highlight style — icon-style, no emoji */}
       <ToolbarBtn active={highlightStyle === "fill"} onClick={() => setHighlightStyle("fill")} title="Fill highlight">
-        ▮ Fill
+        {/* Marker icon */}
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 3 }}>
+          <rect x="3" y="3" width="18" height="14" rx="2" fill={highlightStyle === "fill" ? "#111" : "none"}/>
+          <line x1="3" y1="20" x2="21" y2="20" strokeWidth="2"/>
+        </svg>
+        Fill
       </ToolbarBtn>
       <ToolbarBtn active={highlightStyle === "underline"} onClick={() => setHighlightStyle("underline")} title="Underline highlight">
-        U̲ Line
+        {/* Underline icon */}
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: 3 }}>
+          <path d="M6 4v6a6 6 0 0 0 12 0V4"/>
+          <line x1="4" y1="20" x2="20" y2="20"/>
+        </svg>
+        Line
       </ToolbarBtn>
 
-      <div style={{ width: 1, height: 18, background: "#e5e5e5", margin: "0 6px", flexShrink: 0 }}/>
+      <Divider/>
 
       {/* Font family */}
       <select value={fontFamily} onChange={e => setFontFamily(e.target.value)} style={{
@@ -557,36 +616,31 @@ function AnalysisToolbar({
         ))}
       </select>
 
-      {/* Font size */}
-      <select value={fontSize} onChange={e => setFontSize(Number(e.target.value))} style={{
-        fontSize: 11, border: "1px solid #ddd", borderRadius: 3, padding: "2px 4px",
-        color: "#555", background: "#fff", cursor: "pointer", outline: "none",
-        fontFamily: "'Helvetica Neue', Arial, sans-serif", marginLeft: 2,
-      }}>
-        {[11,12,13,14,15,16].map(s => (
-          <option key={s} value={s}>{s}px</option>
-        ))}
-      </select>
+      {/* Font size with A▲ A▼ */}
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 2, marginLeft: 4 }}>
+        <button onClick={() => setFontSize(s => Math.max(10, s - 1))} title="Decrease font size" style={{
+          background: "none", border: "1px solid #ddd", borderRadius: 3,
+          padding: "2px 5px", cursor: "pointer", fontSize: 10, color: "#555", lineHeight: 1,
+        }}>A<span style={{ fontSize: 7, verticalAlign: "super" }}>▼</span></button>
+        <span style={{ fontSize: 11, color: "#555", minWidth: 24, textAlign: "center" }}>{fontSize}</span>
+        <button onClick={() => setFontSize(s => Math.min(20, s + 1))} title="Increase font size" style={{
+          background: "none", border: "1px solid #ddd", borderRadius: 3,
+          padding: "2px 5px", cursor: "pointer", fontSize: 10, color: "#555", lineHeight: 1,
+        }}>A<span style={{ fontSize: 7, verticalAlign: "super" }}>▲</span></button>
+      </div>
 
-      {/* Right side */}
-      <div style={{ flex: 1 }}/>
+      <Divider/>
 
-      <button onClick={() => setShowFilters(f => !f)} style={{
-        display: "inline-flex", alignItems: "center", gap: 5,
-        background: "none", border: "none", cursor: "pointer",
-        fontSize: 12, fontWeight: 500, color: "#666",
-        fontFamily: "'Helvetica Neue', Arial, sans-serif",
-      }}>
-        {showFilters ? "Hide Filters" : "Show Filters"}
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2">
-          <line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="#666"/>
-          <line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2" fill="#666"/>
-          <line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2" fill="#666"/>
-        </svg>
-      </button>
+      {/* Model color swatches */}
+      {allModels.map(m => (
+        <ModelColorPicker
+          key={m}
+          model={m}
+          color={modelColors[m] || MODEL_META[m]?.color || "#111"}
+          onChange={onModelColorChange}
+        />
+      ))}
 
-      <div style={{ width: 1, height: 18, background: "#e5e5e5", margin: "0 8px", flexShrink: 0 }}/>
-      <SortByDropdown colDim={colDim} rowDim={rowDim} onChange={onAxisChange}/>
     </div>
   );
 }
@@ -598,16 +652,23 @@ function AnalysisToolbar({
 function ResponseCard({
   model, language, therapy, repetition, response,
   showWordCount, maxWordCount,
-  showDiff, diffWords, diffScoreValue, uniqueVocabValue,
-  showUniqueBadges, topTerms,
+  showDiff, diffWords, diffScoreValue,
+  showTopTerms, topTerms,
   keywords, highlightStyle, partialMatch,
   fontSize, fontFamily,
+  modelColor,
 }) {
-  const mc = MODEL_META[model]?.color || "#111";
+  const mc = modelColor || MODEL_META[model]?.color || "#111";
   const ml = MODEL_META[model]?.label || model;
   const lc = LANG_COLOR[language]     || "#111";
   const tc = THERAPY_COLOR[therapy]   || "#111";
   const wc = wordCount(response);
+
+  // Keyword match count
+  const kwMatches = useMemo(
+    () => countKeywordMatches(response, keywords, partialMatch),
+    [response, keywords, partialMatch]
+  );
 
   return (
     <div style={{
@@ -627,27 +688,39 @@ function ResponseCard({
           background: tc + "18", color: tc }}>{therapy}</span>
         <span style={{ marginLeft: "auto", fontSize: 10, color: "#bbb" }}>Rep {repetition}</span>
 
-        {/* Metrics */}
+        {/* Word count badge in header */}
         {showWordCount && (
           <span style={{ fontSize: 10, color: "#888", background: "#f0f0f0",
-            padding: "1px 6px", borderRadius: 8, marginLeft: 4 }}>
+            padding: "1px 6px", borderRadius: 8 }}>
             {wc}w
           </span>
         )}
-        {showDiff && diffScoreValue !== undefined && (
-          <span style={{ fontSize: 10, color: "#7c3aed", background: "#f5f3ff",
-            padding: "1px 6px", borderRadius: 8, fontWeight: 600 }}
-            title="% of this card's vocabulary not found in column peers">
-            Diff {diffScoreValue}%
-          </span>
-        )}
-        {showDiff && uniqueVocabValue !== undefined && (
-          <span style={{ fontSize: 10, color: "#6b7280", background: "#f9fafb",
-            padding: "1px 6px", borderRadius: 8 }}>
-            Unique {uniqueVocabValue}%
-          </span>
-        )}
       </div>
+
+      {/* Different Words metric — single line under header, not in header */}
+      {showDiff && diffScoreValue !== undefined && (
+        <div style={{
+          padding: "4px 12px",
+          borderBottom: "1px solid #f5f5f5",
+          background: "#fdfcff",
+          display: "flex", alignItems: "center", gap: 6,
+        }}>
+          <div style={{
+            flex: 1, height: 2, background: "#ede9fe", borderRadius: 1, overflow: "hidden",
+          }}>
+            <div style={{
+              width: `${diffScoreValue}%`, height: "100%",
+              background: mc + "88", borderRadius: 1, transition: "width .3s",
+            }}/>
+          </div>
+          <span
+            style={{ fontSize: 10, color: "#7c3aed", whiteSpace: "nowrap", fontWeight: 600 }}
+            title="Percentage of vocabulary in this response that does not appear in comparison responses"
+          >
+            Different words: {diffScoreValue}%
+          </span>
+        </div>
+      )}
 
       {/* Body */}
       <div style={{
@@ -668,9 +741,22 @@ function ResponseCard({
         }
       </div>
 
-      {/* Top unique terms badges */}
-      {showDiff && showUniqueBadges && topTerms && topTerms.length > 0 && (
-        <TopUniqueTermsBadges terms={topTerms} pct={uniqueVocabValue} color={mc} />
+      {/* Top Terms */}
+      {showDiff && showTopTerms && topTerms && topTerms.length > 0 && (
+        <TopTermsBadges terms={topTerms} color={mc} />
+      )}
+
+      {/* Keyword match count */}
+      {keywords.length > 0 && kwMatches > 0 && (
+        <div style={{
+          padding: "5px 14px", borderTop: "1px solid #f1f1f1",
+          background: "#fafafa", fontSize: 10, color: "#888",
+          display: "flex", alignItems: "center", gap: 4,
+        }}>
+          <span style={{ width: 6, height: 6, borderRadius: "50%",
+            background: "#f59e0b", display: "inline-block" }}/>
+          Keyword matches: {kwMatches}
+        </div>
       )}
 
       {/* Word count bar */}
@@ -706,16 +792,22 @@ export default function HCCExplorer({ data }) {
   const [colDim,       setColDim]       = useState("model");
   const [rowDim,       setRowDim]       = useState("language");
 
-  // Analysis toolbar state
-  const [showDiff,         setShowDiff]         = useState(false);
-  const [showUniqueBadges, setShowUniqueBadges] = useState(false);
-  const [showWordCount,    setShowWordCount]    = useState(false);
-  const [showKeywords,     setShowKeywords]     = useState(false);
-  const [keywords,         setKeywords]         = useState([]);
-  const [highlightStyle,   setHighlightStyle]   = useState("fill");
-  const [partialMatch,     setPartialMatch]     = useState(false);
-  const [fontSize,         setFontSize]         = useState(13);
-  const [fontFamily,       setFontFamily]       = useState("'Georgia', serif");
+  // Analysis state
+  const [showDiff,       setShowDiff]       = useState(false);
+  const [showTopTerms,   setShowTopTerms]   = useState(false);
+  const [showWordCount,  setShowWordCount]  = useState(false);
+  const [showKeywords,   setShowKeywords]   = useState(false);
+  const [keywords,       setKeywords]       = useState([]);
+  const [highlightStyle, setHighlightStyle] = useState("fill");
+  const [partialMatch,   setPartialMatch]   = useState(false);
+  const [fontSize,       setFontSize]       = useState(13);
+  const [fontFamily,     setFontFamily]     = useState("'Georgia', serif");
+
+  // Model color overrides — starts from MODEL_META defaults
+  const [modelColors, setModelColors] = useState({});
+  function handleModelColorChange(model, color) {
+    setModelColors(prev => ({ ...prev, [model]: color }));
+  }
 
   useEffect(() => {
     if (data.length === 0) return;
@@ -753,9 +845,9 @@ export default function HCCExplorer({ data }) {
     setRowDim(newRow);
   }
 
-  function addKeyword(kw) { setKeywords(prev => [...prev, kw]); }
-  function removeKeyword(term) { setKeywords(prev => prev.filter(k => k.term !== term)); }
-  function clearKeywords() { setKeywords([]); }
+  function addKeyword(kw)       { setKeywords(prev => [...prev, kw]); }
+  function removeKeyword(term)  { setKeywords(prev => prev.filter(k => k.term !== term)); }
+  function clearKeywords()      { setKeywords([]); }
 
   const selValues = {
     therapy:    selTherapies,
@@ -800,10 +892,9 @@ export default function HCCExplorer({ data }) {
   const showRowLabels  = !!rowDim;
   const rowLabelWidth  = showRowLabels ? 120 : 0;
 
-  // NAV: topbar(48) + explorerbar(48) + toolbar(40) = 136
+  // NAV: topbar(48) + breadcrumb(48) + toolbar(40) = 136
   const NAV_HEIGHT = 136;
 
-  // Max word count for bars
   const maxWordCount = useMemo(() => {
     let max = 1;
     effectiveRows.forEach(rowVal => {
@@ -822,7 +913,6 @@ export default function HCCExplorer({ data }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selTherapies, selLangs, selModels, selReps, colDim, rowDim, selQ]);
 
-  // Peer responses for diff (all other rowVals in same col)
   function getPeerResponses(colVal, rowVal) {
     const peers = [];
     effectiveRows.forEach(rv => {
@@ -839,7 +929,6 @@ export default function HCCExplorer({ data }) {
     return peers;
   }
 
-  // All visible responses (for suggested keywords)
   const allVisibleResponses = useMemo(() => {
     const resps = [];
     effectiveRows.forEach(rowVal => {
@@ -862,6 +951,8 @@ export default function HCCExplorer({ data }) {
     () => suggestedKeywords(allVisibleResponses, 10).filter(s => !keywords.some(k => k.term === s)),
     [allVisibleResponses, keywords]
   );
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div style={{ fontFamily: "'Helvetica Neue', Arial, sans-serif", background: "#f5f5f5", minHeight: "100vh", color: "#111" }}>
@@ -888,7 +979,7 @@ export default function HCCExplorer({ data }) {
         <span style={{ fontSize: 13, color: "#8d8d8d" }}>HCC Patient Education Study</span>
       </div>
 
-      {/* ── Breadcrumb bar ── */}
+      {/* ── Breadcrumb bar — now includes Hide Filters + Sort By on right ── */}
       <div style={{
         background: "#fff", borderBottom: "1px solid #ebebeb",
         padding: "0 32px", display: "flex", alignItems: "center", height: 48,
@@ -902,42 +993,59 @@ export default function HCCExplorer({ data }) {
           <span>/</span>
           <span style={{ color: "#111", fontWeight: 500 }}>{therapyLabel}</span>
         </div>
+
+        {/* Hide Filters + Sort By moved here from toolbar */}
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <button onClick={() => setShowFilters(f => !f)} style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 13, fontWeight: 500, color: "#555",
+            fontFamily: "'Helvetica Neue', Arial, sans-serif",
+          }}>
+            {showFilters ? "Hide Filters" : "Show Filters"}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2">
+              <line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="#666"/>
+              <line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2" fill="#666"/>
+              <line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2" fill="#666"/>
+            </svg>
+          </button>
+          <Divider/>
+          <SortByDropdown colDim={colDim} rowDim={rowDim} onChange={handleAxisChange}/>
+        </div>
       </div>
 
       {/* ── Analysis Toolbar ── */}
       <AnalysisToolbar
-        showDiff={showDiff} setShowDiff={setShowDiff}
-        showWordCount={showWordCount} setShowWordCount={setShowWordCount}
-        showKeywords={showKeywords} setShowKeywords={setShowKeywords}
-        showUniqueBadges={showUniqueBadges} setShowUniqueBadges={setShowUniqueBadges}
-        partialMatch={partialMatch} setPartialMatch={setPartialMatch}
+        showDiff={showDiff}             setShowDiff={setShowDiff}
+        showWordCount={showWordCount}   setShowWordCount={setShowWordCount}
+        showKeywords={showKeywords}     setShowKeywords={setShowKeywords}
+        showTopTerms={showTopTerms}     setShowTopTerms={setShowTopTerms}
+        partialMatch={partialMatch}     setPartialMatch={setPartialMatch}
         highlightStyle={highlightStyle} setHighlightStyle={setHighlightStyle}
-        fontSize={fontSize} setFontSize={setFontSize}
-        fontFamily={fontFamily} setFontFamily={setFontFamily}
-        showFilters={showFilters} setShowFilters={setShowFilters}
-        colDim={colDim} rowDim={rowDim} onAxisChange={handleAxisChange}
+        fontSize={fontSize}             setFontSize={setFontSize}
+        fontFamily={fontFamily}         setFontFamily={setFontFamily}
+        modelColors={modelColors}       onModelColorChange={handleModelColorChange}
+        allModels={allModels}
       />
 
-      {/* ── Keyword input bar (shown when keywords panel open) ── */}
+      {/* ── Keyword input bar ── */}
       {showKeywords && (
         <div style={{
           background: "#fafafa", borderBottom: "1px solid #e5e5e5",
           padding: "10px 32px", position: "sticky", top: 136, zIndex: 197,
         }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1,
-              textTransform: "uppercase", color: "#aaa", paddingTop: 8, whiteSpace: "nowrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1,
+              textTransform: "uppercase", color: "#aaa", whiteSpace: "nowrap" }}>
               Keywords
             </div>
-            <div style={{ flex: 1 }}>
-              <KeywordChips
-                keywords={keywords}
-                onAdd={addKeyword}
-                onRemove={removeKeyword}
-                onClearAll={clearKeywords}
-                suggestions={suggestions}
-              />
-            </div>
+            <KeywordChips
+              keywords={keywords}
+              onAdd={addKeyword}
+              onRemove={removeKeyword}
+              onClearAll={clearKeywords}
+              suggestions={suggestions}
+            />
           </div>
         </div>
       )}
@@ -966,13 +1074,13 @@ export default function HCCExplorer({ data }) {
                   <button key={q_num} onClick={() => handleQSelect(q_num)} style={{
                     display: "block", width: "100%", textAlign: "left", padding: "7px 0",
                     background: "none", border: "none", cursor: "pointer",
-                    fontSize: 14, fontWeight: 400, color: "#111",
+                    fontSize: 14, fontWeight: active ? 700 : 400, color: "#111",
                     fontFamily: "'Helvetica Neue', Arial, sans-serif",
                     borderBottom: "none", marginBottom: 2, letterSpacing: 0.1,
                     textDecoration: active ? "underline" : "none", textUnderlineOffset: 3,
                   }}>
                     <span style={{ fontSize: 10, color: "#aaa", marginRight: 6 }}>{q_num}</span>
-                    <span style={{ fontWeight: active ? 700 : 400 }}>{topic}</span>
+                    {topic}
                   </button>
                 );
               })}
@@ -1009,7 +1117,6 @@ export default function HCCExplorer({ data }) {
         {/* ── Content ── */}
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", minWidth: 0 }}>
 
-          {/* Prompt */}
           {promptText && (
             <div style={{
               background: "#fff", border: "1px solid #e5e5e5", borderLeft: "3px solid #111",
@@ -1023,12 +1130,13 @@ export default function HCCExplorer({ data }) {
                   keywords={keywords}
                   highlightStyle={highlightStyle}
                   partialMatch={partialMatch}
+                  diffWords={null}
+                  diffColor="#111"
                 />
               </div>
             </div>
           )}
 
-          {/* Column headers */}
           {showColHeaders && (
             <div style={{
               display: "grid",
@@ -1036,21 +1144,24 @@ export default function HCCExplorer({ data }) {
               gap: 10, marginBottom: 8,
             }}>
               {rowLabelWidth > 0 && <div/>}
-              {effectiveCols.map(colVal => (
-                <div key={String(colVal)} style={{
-                  padding: "7px 12px", background: "#fff",
-                  borderTop: `2px solid ${colDim ? dimColor(colDim, colVal) : "#111"}`,
-                  border: "1px solid #e5e5e5", borderRadius: 2, textAlign: "center",
-                  fontSize: 12, fontWeight: 700,
-                  color: colDim ? dimColor(colDim, colVal) : "#111",
-                }}>
-                  {colDim ? dimLabel(colDim, colVal) : ""}
-                </div>
-              ))}
+              {effectiveCols.map(colVal => {
+                const colColor = colDim === "model"
+                  ? (modelColors[colVal] || dimColor(colDim, colVal))
+                  : dimColor(colDim, colVal);
+                return (
+                  <div key={String(colVal)} style={{
+                    padding: "7px 12px", background: "#fff",
+                    borderTop: `2px solid ${colColor}`,
+                    border: "1px solid #e5e5e5", borderRadius: 2, textAlign: "center",
+                    fontSize: 12, fontWeight: 700, color: colColor,
+                  }}>
+                    {colDim ? dimLabel(colDim, colVal) : ""}
+                  </div>
+                );
+              })}
             </div>
           )}
 
-          {/* Rows */}
           {effectiveRows.map(rowVal => (
             <div key={String(rowVal)} style={{
               display: "grid",
@@ -1089,9 +1200,9 @@ export default function HCCExplorer({ data }) {
                       ];
                       const dWords  = showDiff ? computeUniqueWords(card.response, allPeers) : null;
                       const dScore  = showDiff ? diffScore(card.response, allPeers) : undefined;
-                      const uVocab  = showDiff ? uniqueVocabPct(card.response, allPeers) : undefined;
-                      const tTerms  = (showDiff && showUniqueBadges)
+                      const tTerms  = (showDiff && showTopTerms)
                         ? topUniqueTerms(card.response, allPeers, 6) : null;
+                      const mc = modelColors[card.model] || MODEL_META[card.model]?.color || "#111";
 
                       return (
                         <ResponseCard key={k}
@@ -1103,14 +1214,14 @@ export default function HCCExplorer({ data }) {
                           showDiff={showDiff}
                           diffWords={dWords}
                           diffScoreValue={dScore}
-                          uniqueVocabValue={uVocab}
-                          showUniqueBadges={showUniqueBadges}
+                          showTopTerms={showTopTerms}
                           topTerms={tTerms}
                           keywords={keywords}
                           highlightStyle={highlightStyle}
                           partialMatch={partialMatch}
                           fontSize={fontSize}
                           fontFamily={fontFamily}
+                          modelColor={mc}
                         />
                       );
                     })}
