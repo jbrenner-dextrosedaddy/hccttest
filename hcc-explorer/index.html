@@ -3,11 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>HCC Response Explorer</title>
+    <title>KGR Lab</title>
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
       body { -webkit-font-smoothing: antialiased; }
     </style>
+    <script>
+      // Show splash once per browser session — not on every navigation
+      if (!sessionStorage.getItem('splashed')) {
+        sessionStorage.setItem('splashed', '1');
+        window.location.href = '/kgrt_splash.html';
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
