@@ -194,10 +194,20 @@ export function precomputeDiff(cards, showTopTerms) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cross-language diff warning
-// Returns true if the comparison is mixing languages — diff % will be inflated
+// Only warn when language is a FREE dimension (not assigned to row or col axis).
+// When language IS a row or col axis, each row/col contains ONE language so
+// comparisons are within the same language — no inflation, no warning needed.
+// When language is FREE (not on any axis), multiple languages are pooled into
+// the same peer group, inflating diff scores — warn the user.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function isCrossLanguageDiff(rowDim, colDim, selLangs) {
-  const comparingLangs = rowDim === "language" || colDim === "language";
-  return comparingLangs && selLangs.length > 1;
+  // Only warn when language is a FREE dimension (not on any axis).
+  // When rowDim or colDim = "language", each row/col is ONE language,
+  // so peers are always same-language. No inflation. No warning.
+  // When language is free (not on any axis), multiple languages get
+  // pooled into the same peer group -> diff score inflated -> warn.
+  const languageIsSeparated = rowDim === "language" || colDim === "language";
+  const multipleLanguagesSelected = selLangs.length > 1;
+  return !languageIsSeparated && multipleLanguagesSelected;
 }
