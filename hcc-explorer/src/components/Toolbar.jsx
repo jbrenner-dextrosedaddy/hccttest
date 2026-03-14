@@ -293,11 +293,26 @@ export function AnalysisToolbar({
   showTopTerms,   setShowTopTerms,
   partialMatch,   setPartialMatch,
   highlightStyle, setHighlightStyle,
+  highlightColor, setHighlightColor,
   fontSize,       setFontSize,
   fontFamily,     setFontFamily,
   modelColors,    onModelColorChange,
   allModels,
 }) {
+  // Highlight color picker open state
+  const [hlColorOpen, setHlColorOpen] = useState(false);
+  const hlColorRef = useRef(null);
+  useEffect(() => {
+    function h(e) { if (hlColorRef.current && !hlColorRef.current.contains(e.target)) setHlColorOpen(false); }
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const HIGHLIGHT_COLORS = [
+    "#FFD600","#fbbf24","#f97316","#ef4444",
+    "#10b981","#3b82f6","#8b5cf6","#ec4899",
+  ];
+
   return (
     <div style={{
       background: "#fff", borderBottom: "1px solid #e5e5e5",
@@ -322,7 +337,7 @@ export function AnalysisToolbar({
 
       {/* Word Count */}
       <ToolbarBtn active={showWordCount} onClick={() => setShowWordCount(w => !w)}
-        title="Show word count">
+        title="Show word count bar at bottom of card">
         Word Count
       </ToolbarBtn>
 
@@ -336,12 +351,10 @@ export function AnalysisToolbar({
       {showKeywords && (
         <>
           <Divider/>
-          <ToolbarBtn active={!partialMatch} onClick={() => setPartialMatch(false)}
-            title="Match whole words only">
+          <ToolbarBtn active={!partialMatch} onClick={() => setPartialMatch(false)} title="Match whole words only">
             Whole
           </ToolbarBtn>
-          <ToolbarBtn active={partialMatch} onClick={() => setPartialMatch(true)}
-            title="Match partial words">
+          <ToolbarBtn active={partialMatch} onClick={() => setPartialMatch(true)} title="Match partial words">
             Partial
           </ToolbarBtn>
         </>
@@ -349,26 +362,81 @@ export function AnalysisToolbar({
 
       <Divider/>
 
-      {/* Highlight style — SVG icons, no emoji */}
-      <ToolbarBtn active={highlightStyle === "fill"} onClick={() => setHighlightStyle("fill")}
-        title="Fill highlight">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" strokeWidth="2" style={{ marginRight: 3 }}>
-          <rect x="3" y="3" width="18" height="14" rx="2"
-            fill={highlightStyle === "fill" ? "#111" : "none"}/>
-          <line x1="3" y1="20" x2="21" y2="20" strokeWidth="2"/>
+      {/* Highlight style — Apple/Word style icons */}
+      {/* Highlighter (fill) */}
+      <button
+        onClick={() => setHighlightStyle("fill")}
+        title="Highlight fill"
+        style={{
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          width: 28, height: 26, borderRadius: 3, cursor: "pointer",
+          border: `1px solid ${highlightStyle === "fill" ? "#555" : "#ddd"}`,
+          background: highlightStyle === "fill" ? "#f0f0f0" : "#fff",
+          padding: 0,
+        }}
+      >
+        {/* Highlighter marker icon */}
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <rect x="5" y="3" width="14" height="10" rx="2"
+            fill={highlightStyle === "fill" ? highlightColor : "#ddd"}
+            stroke={highlightStyle === "fill" ? "#555" : "#bbb"} strokeWidth="1.2"/>
+          <path d="M9 13 L9 17 L12 20 L15 17 L15 13" fill="#888" stroke="none"/>
+          <line x1="5" y1="22" x2="19" y2="22" stroke={highlightStyle === "fill" ? "#555" : "#bbb"} strokeWidth="2" strokeLinecap="round"/>
         </svg>
-        Fill
-      </ToolbarBtn>
-      <ToolbarBtn active={highlightStyle === "underline"} onClick={() => setHighlightStyle("underline")}
-        title="Underline highlight">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" strokeWidth="2.5" style={{ marginRight: 3 }}>
-          <path d="M6 4v6a6 6 0 0 0 12 0V4"/>
-          <line x1="4" y1="20" x2="20" y2="20"/>
+      </button>
+
+      {/* Underline icon */}
+      <button
+        onClick={() => setHighlightStyle("underline")}
+        title="Underline highlight"
+        style={{
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          width: 28, height: 26, borderRadius: 3, cursor: "pointer",
+          border: `1px solid ${highlightStyle === "underline" ? "#555" : "#ddd"}`,
+          background: highlightStyle === "underline" ? "#f0f0f0" : "#fff",
+          padding: 0,
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <text x="4" y="16" fontSize="14" fontWeight="bold"
+            fill={highlightStyle === "underline" ? "#111" : "#888"}
+            fontFamily="serif" style={{ textDecoration: "underline" }}>U</text>
+          <line x1="4" y1="20" x2="20" y2="20"
+            stroke={highlightStyle === "underline" ? highlightColor : "#bbb"}
+            strokeWidth="2.5" strokeLinecap="round"/>
         </svg>
-        Line
-      </ToolbarBtn>
+      </button>
+
+      {/* Highlight color picker */}
+      <div ref={hlColorRef} style={{ position: "relative", marginLeft: 2 }}>
+        <button
+          onClick={() => setHlColorOpen(o => !o)}
+          title="Highlight color"
+          style={{
+            width: 18, height: 18, borderRadius: 3,
+            background: highlightColor,
+            border: "1.5px solid rgba(0,0,0,.2)",
+            cursor: "pointer", padding: 0, flexShrink: 0,
+            display: "block",
+          }}
+        />
+        {hlColorOpen && (
+          <div style={{
+            position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 600,
+            background: "#fff", border: "1px solid #e5e5e5", borderRadius: 6,
+            boxShadow: "0 4px 16px rgba(0,0,0,.15)", padding: 8,
+            display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 4, width: 104,
+          }}>
+            {HIGHLIGHT_COLORS.map(c => (
+              <button key={c} onClick={() => { setHighlightColor(c); setHlColorOpen(false); }} style={{
+                width: 20, height: 20, borderRadius: 3, background: c,
+                border: c === highlightColor ? "2.5px solid #111" : "1.5px solid rgba(0,0,0,.1)",
+                cursor: "pointer", padding: 0,
+              }}/>
+            ))}
+          </div>
+        )}
+      </div>
 
       <Divider/>
 
@@ -383,20 +451,23 @@ export function AnalysisToolbar({
         ))}
       </select>
 
-      {/* Font size A▲ A▼ */}
-      <div style={{ display: "inline-flex", alignItems: "center", gap: 2, marginLeft: 4 }}>
-        <button onClick={() => setFontSize(s => Math.max(10, s - 1))} title="Decrease font size"
-          style={{ background: "none", border: "1px solid #ddd", borderRadius: 3,
-            padding: "2px 5px", cursor: "pointer", fontSize: 10, color: "#555", lineHeight: 1 }}>
-          A<span style={{ fontSize: 7, verticalAlign: "super" }}>▼</span>
-        </button>
-        <span style={{ fontSize: 11, color: "#555", minWidth: 24, textAlign: "center" }}>
-          {fontSize}
-        </span>
+      {/* Font size — Word-style A^ A˅ */}
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 1, marginLeft: 3 }}>
         <button onClick={() => setFontSize(s => Math.min(20, s + 1))} title="Increase font size"
-          style={{ background: "none", border: "1px solid #ddd", borderRadius: 3,
-            padding: "2px 5px", cursor: "pointer", fontSize: 10, color: "#555", lineHeight: 1 }}>
-          A<span style={{ fontSize: 7, verticalAlign: "super" }}>▲</span>
+          style={{
+            background: "none", border: "none", cursor: "pointer",
+            padding: "1px 3px", lineHeight: 1, color: "#555",
+          }}>
+          <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "serif" }}>A</span>
+          <span style={{ fontSize: 7, verticalAlign: "super", color: "#888" }}>▲</span>
+        </button>
+        <button onClick={() => setFontSize(s => Math.max(10, s - 1))} title="Decrease font size"
+          style={{
+            background: "none", border: "none", cursor: "pointer",
+            padding: "1px 3px", lineHeight: 1, color: "#555",
+          }}>
+          <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "serif" }}>A</span>
+          <span style={{ fontSize: 7, verticalAlign: "super", color: "#888" }}>▼</span>
         </button>
       </div>
 
