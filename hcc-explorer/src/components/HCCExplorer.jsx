@@ -242,6 +242,10 @@ export default function HCCExplorer({ data }) {
   // ── FIX: Precompute peer map ONCE, outside render ──────────────────────────
   // Build { colVal → { rowVal → [peerResponses] } } so getPeerResponses is O(1)
 
+  // FIXED PEER DIRECTION: peers = OTHER COLUMNS in the SAME ROW.
+  // e.g. colDim=model, rowDim=language:
+  //   Claude/English peers -> [GPT/English]  (same language, different model)  CORRECT
+  //   NOT Claude/Spanish                      (different language)              WRONG
   const peerMap = useMemo(() => {
     const map = new Map();
     effectiveCols.forEach(colVal => {
@@ -249,12 +253,13 @@ export default function HCCExplorer({ data }) {
       if (!map.has(colKey)) map.set(colKey, new Map());
       effectiveRows.forEach(rowVal => {
         const peers = [];
-        effectiveRows.forEach(rv => {
-          if (String(rv) === String(rowVal)) return;
+        // Peers = OTHER COLUMNS, SAME ROW (not other rows)
+        effectiveCols.forEach(cv => {
+          if (String(cv) === String(colVal)) return; // skip self
           freeCombos.forEach(fc => {
             const full = { ...fc };
-            if (colDim && colVal !== null) full[colDim] = colVal;
-            if (rowDim && rv !== null) full[rowDim] = rv;
+            if (colDim && cv !== null)       full[colDim] = cv;
+            if (rowDim && rowVal !== null)   full[rowDim] = rowVal;
             ALL_DIMS.forEach(({ id }) => { if (full[id] === undefined) full[id] = selValues[id][0]; });
             const resp = getResponse(full);
             if (resp) peers.push(resp);
